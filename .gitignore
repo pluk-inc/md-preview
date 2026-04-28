@@ -4,6 +4,7 @@
 
 ## User settings
 xcuserdata/
+*.xcuserstate
 
 ## Obj-C/Swift specific
 *.hmap
@@ -12,6 +13,10 @@ xcuserdata/
 *.ipa
 *.dSYM.zip
 *.dSYM
+
+## Build output
+build/
+DerivedData/
 
 ## Playgrounds
 timeline.xctimeline
@@ -27,7 +32,9 @@ playground.xcworkspace
 #
 # Xcode automatically generates this directory with a .xcworkspacedata file and xcuserdata
 # hence it is not needed unless you have added a package configuration file to your project
-# .swiftpm
+.swiftpm/
+*.swiftpm/
+Package.resolved
 
 .build/
 
@@ -60,3 +67,11 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# macOS
+.DS_Store
+
+# Local agent state
+.claude/
+.agents/
+skills-lock.json
