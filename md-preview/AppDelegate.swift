@@ -183,9 +183,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         NSLayoutConstraint.activate([
             button.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 2),
             button.topAnchor.constraint(equalTo: container.topAnchor),
-            button.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            button.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
             button.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            button.widthAnchor.constraint(equalToConstant: 32),
             button.heightAnchor.constraint(equalToConstant: 32),
             container.widthAnchor.constraint(equalToConstant: 36),
             container.heightAnchor.constraint(equalToConstant: 32)
