@@ -92,7 +92,7 @@ Pull requests are welcome. For larger changes, please open an issue first to dis
 
 - [Ink](https://github.com/JohnSundell/Ink) — Markdown parser
 - [Sparkle](https://sparkle-project.org) — Auto-update framework
-- [Amore](https://github.com/Amore-app/amore-cli) — macOS release automation (signing, notarization, DMG, S3 hosting, appcast)
+- [Amore](http://amore.computer/) — macOS release automation (signing, notarization, DMG, S3 hosting, appcast)
 
 ## License
 
