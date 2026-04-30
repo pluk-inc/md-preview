@@ -1,0 +1,29 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
+     xmlns:dc="http://purl.org/dc/elements/1.1/"
+     version="2.0">
+    <channel>
+        <title>Markdown Preview</title>
+        <link>https://storage.md-preview.app/appcast.xml</link>
+        <description>Most recent changes to Markdown Preview</description>
+        <language>en</language>
+
+        <item>
+            <title>Version 0.0.1</title>
+            <pubDate>Wed, 29 Apr 2026 12:00:00 +0000</pubDate>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>0.0.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <ul>
+                    <li>Initial release.</li>
+                </ul>
+            ]]></description>
+            <enclosure
+                url="https://storage.md-preview.app/Markdown-Preview-0.0.1.zip"
+                length="REPLACE_WITH_BYTE_SIZE_OF_ZIP"
+                type="application/octet-stream"
+                sparkle:edSignature="REPLACE_WITH_OUTPUT_OF_sign_update" />
+        </item>
+    </channel>
+</rss>
