@@ -16,10 +16,16 @@
 
 ## Screenshots
 
-<!-- TODO: replace with real screenshots before publishing -->
 <p align="center">
-  <img src="docs/screenshot-main.png" width="720" alt="Main window" />
-  <img src="docs/screenshot-quicklook.png" width="480" alt="Quick Look preview" />
+  <img src="docs/screenshot-main.png" width="820" alt="Main window with document outline sidebar" />
+</p>
+
+<p align="center">
+  <em>Quick Look preview — spacebar a <code>.md</code> in Finder:</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshot-quicklook.png" width="640" alt="Quick Look preview from Finder" />
 </p>
 
 ## Features
