@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.2] – 2026-05-01
+
+Compatibility release: Markdown Preview now runs on macOS 15 Sequoia in addition to macOS 26 Tahoe.
+
+- **Lowered the minimum macOS version to 15.0 (Sequoia).** Previously required macOS 26 Tahoe.
+- **Replaced the app icon with an Icon Composer `.icon` bundle.** Fixes the icon appearing oversized on Sequoia — the system now applies its own mask and the standard safe-area inset.
+
 ## [0.0.1] – 2026-04-30
 
 First public build of Markdown Preview — a fast, native macOS reader for `.md` files.
