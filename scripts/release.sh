@@ -181,7 +181,7 @@ else
 fi
 git push origin "$TAG" 2>/dev/null || git push origin "$TAG"
 
-DMG_PATH="$(mktemp -d)/Markdown-Preview-$VERSION.dmg"
+DMG_PATH="$(mktemp -d)/Markdown-Preview.dmg"
 echo "▸ Downloading DMG to attach"
 curl -fsSL -o "$DMG_PATH" "$DMG_URL"
 
