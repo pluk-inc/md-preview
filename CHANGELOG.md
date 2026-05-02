@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.4] – 2026-05-02
+
+Relative images and links in Markdown files now render in the sandboxed app.
+
+- **Render relative local assets via a folder-access banner.** When a document references images or files alongside it, Markdown Preview now shows an in-window banner offering to grant read access to the parent folder. Once granted, the access is remembered across launches and assets load through a dedicated `md-asset://` scheme so they appear inline in the preview.
+- **Stable DMG filename for GitHub releases.** The DMG attached to each GitHub release is now `Markdown-Preview.dmg` without a version suffix, so download links stay valid across versions.
+
 ## [0.0.3] – 2026-05-02
 
 Better Markdown rendering and a tidier **Open With** menu.
