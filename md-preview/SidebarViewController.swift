@@ -54,7 +54,7 @@ final class SidebarViewController: NSViewController {
         scrollView.documentView = outlineView
 
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 44),
+            titleLabel.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
             titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
             titleLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
 
