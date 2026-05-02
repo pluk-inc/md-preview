@@ -70,8 +70,3 @@ fastlane/test_output
 
 # macOS
 .DS_Store
-
-# Local agent state
-.claude/
-.agents/
-skills-lock.json
