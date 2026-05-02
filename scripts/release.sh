@@ -149,13 +149,19 @@ fi
 
 # ── amore release ──────────────────────────────────────────────────────────
 echo "▸ amore release"
+if ! command -v jq >/dev/null; then
+    echo "  ✗ jq not installed — brew install jq" >&2
+    exit 1
+fi
 LOG="$(mktemp)"
 "$AMORE" release --scheme "$SCHEME" --release-notes "$NOTES" $BETA_FLAG $DRAFT_FLAG \
+    --format json \
     | tee "$LOG"
 
-DMG_URL="$(grep -oE 'https://[^[:space:]]+\.dmg' "$LOG" | tail -1 || true)"
+# amore --format json prints text progress, then a single JSON object at the end
+DMG_URL="$(sed -n '/^{/,$p' "$LOG" | jq -er '.release.downloadURL' 2>/dev/null || true)"
 if [[ -z "$DMG_URL" ]]; then
-    echo "✗ couldn't parse DMG URL from amore output (see $LOG)" >&2
+    echo "✗ no .release.downloadURL in amore JSON output (see $LOG)" >&2
     exit 1
 fi
 echo "▸ DMG: $DMG_URL"
