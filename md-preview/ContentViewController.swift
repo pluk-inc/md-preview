@@ -83,8 +83,17 @@ final class ContentViewController: NSViewController {
     private func scrollDocument(to y: CGFloat) {
         guard let scrollView = view as? NSScrollView else { return }
         let clipView = scrollView.contentView
-        let maxY = max(documentHeightConstraint.constant - clipView.bounds.height, 0)
-        let target = max(0, min(y, maxY))
+        // `y` is the heading's position in document coordinates. The clip
+        // view has a top contentInset that matches the unified toolbar (and
+        // any titlebar accessory like the folder-access banner) — without
+        // subtracting it, the heading lands underneath the toolbar.
+        let topInset = clipView.contentInsets.top
+        let bottomInset = clipView.contentInsets.bottom
+        let topMargin: CGFloat = 12
+        let adjusted = y - topInset - topMargin
+        let minY = -topInset
+        let maxY = max(documentHeightConstraint.constant - clipView.bounds.height + bottomInset, minY)
+        let target = max(minY, min(adjusted, maxY))
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
             context.allowsImplicitAnimation = true

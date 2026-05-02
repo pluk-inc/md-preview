@@ -266,6 +266,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         let item = NSSearchToolbarItem(itemIdentifier: .search)
         item.label = "Search"
         item.toolTip = "Search in document"
+        item.searchFieldMinWidth = 220
+        item.searchFieldMaxWidth = 320
         item.searchField.placeholderString = "Search in Document"
         item.searchField.sendsSearchStringImmediately = true
         item.searchField.target = self
@@ -597,11 +599,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     }
 
     private func installAccessBanner() {
-        let banner = MissingFolderAccessBanner()
-        banner.translatesAutoresizingMaskIntoConstraints = false
+        let banner = MissingFolderAccessBanner(
+            frame: NSRect(x: 0, y: 0, width: 600, height: 40))
+        banner.autoresizingMask = [.width]
         banner.onAllow = { [weak self] in self?.grantAccessForCurrentDocument() }
         banner.onDismiss = { [weak self] in self?.dismissBannerForCurrentDocument() }
-        banner.heightAnchor.constraint(greaterThanOrEqualToConstant: 38).isActive = true
 
         let accessory = NSTitlebarAccessoryViewController()
         accessory.layoutAttribute = .bottom

@@ -75,12 +75,22 @@ final class MissingFolderAccessBanner: NSView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
+        // macOS 26 dropped the system-drawn separators around titlebar
+        // accessories, so we draw our own. On macOS 15 AppKit still draws
+        // them, so ours would stack and look bolder — hide them there.
+        let needsManualSeparators: Bool = {
+            if #available(macOS 26.0, *) { return true }
+            return false
+        }()
+
         topSeparator.boxType = .separator
         topSeparator.translatesAutoresizingMaskIntoConstraints = false
+        topSeparator.isHidden = !needsManualSeparators
         addSubview(topSeparator)
 
         bottomSeparator.boxType = .separator
         bottomSeparator.translatesAutoresizingMaskIntoConstraints = false
+        bottomSeparator.isHidden = !needsManualSeparators
         addSubview(bottomSeparator)
 
         NSLayoutConstraint.activate([
