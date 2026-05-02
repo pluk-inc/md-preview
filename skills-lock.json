@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "amore-cli": {
+      "source": "AmoreComputer/amore-skill",
+      "sourceType": "github",
+      "skillPath": "skills/amore-cli/SKILL.md",
+      "computedHash": "d2a569cc64397d101b22fb262cbd6e28daeb577d40ca957723999925057227b3"
+    }
+  }
+}

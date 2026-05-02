@@ -1,0 +1,9 @@
+N:changelog-maintenance
+D:Maintain a clear and informative changelog for software releases. Use when documenting version ch...
+G:changelog release-notes versioning semantic-versioning documentation
+U[3]:
+  **Before release**: organize changes before shipping a version
+  **Continuous**: update whenever significant changes occur
+  **Migration guide**: document breaking changes
+S[1]{n,action}:
+  1,Keep a Changelog format
