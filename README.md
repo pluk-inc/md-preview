@@ -1,7 +1,7 @@
 <h1 align="center">Markdown Preview</h1>
 
 <p align="center">
-  <img src="md-preview/Assets.xcassets/AppIcon.appiconset/icon_256x256.png" width="128" alt="App icon" />
+  <img src="docs/app-icon.png" width="128" alt="App icon" />
 </p>
 
 <p align="center">
