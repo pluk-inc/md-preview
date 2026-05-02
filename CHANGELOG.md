@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.5] – 2026-05-02
+
+Small fullscreen polish for the sidebar.
+
+- **Sidebar title sits correctly in fullscreen.** The document title at the top of the table-of-contents pane no longer slides under the toolbar when the window enters fullscreen — it now anchors to the safe-area inset and stays put in both windowed and fullscreen modes.
+
 ## [0.0.4] – 2026-05-02
 
 Relative images and links in Markdown files now render in the sandboxed app.
