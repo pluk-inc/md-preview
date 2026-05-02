@@ -223,7 +223,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         item.label = "Share"
         item.paletteLabel = "Share"
         item.toolTip = "Share document"
-        item.image = shareImage()
         item.delegate = self
         return item
     }
@@ -233,11 +232,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
                             accessibilityDescription: "Inspector") ?? NSImage()
         image.isTemplate = true
         return image
-    }
-
-    private func shareImage() -> NSImage {
-        NSImage(systemSymbolName: "square.and.arrow.up",
-                accessibilityDescription: "Share") ?? NSImage()
     }
 
     @objc private func toggleInspectorAction(_ sender: Any) {
@@ -266,8 +260,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         let item = NSSearchToolbarItem(itemIdentifier: .search)
         item.label = "Search"
         item.toolTip = "Search in document"
-        item.searchFieldMinWidth = 220
-        item.searchFieldMaxWidth = 320
+        item.preferredWidthForSearchField = 320
         item.searchField.placeholderString = "Search in Document"
         item.searchField.sendsSearchStringImmediately = true
         item.searchField.target = self
