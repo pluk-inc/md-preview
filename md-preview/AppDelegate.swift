@@ -31,7 +31,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     private var hasLaunched = false
     private var currentFileURL: URL?
     private var currentMarkdown: String?
-    private var currentAssetBaseURL: URL?
     private var fileWatcher: FileWatcher?
     private var isInspectorToggleSelected = false
     private weak var openWithItem: NSMenuToolbarItem?
@@ -84,7 +83,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     private func present(url: URL) {
         currentFileURL = url
         currentMarkdown = nil
-        currentAssetBaseURL = nil
         window.title = url.lastPathComponent
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
@@ -583,8 +581,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     }
 
     private func renderCurrentDocument(text: String, fileURL: URL) {
-        let assetBase = resolvedAssetBase(for: fileURL)
-        currentAssetBaseURL = assetBase
+        let assetBase = SandboxAccessManager.shared.currentAccessURL(forParentOf: fileURL)
 
         let needsBanner = assetBase == nil
             && MarkdownAssetScanner.hasRelativeLocalRefs(text)
@@ -604,8 +601,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         banner.translatesAutoresizingMaskIntoConstraints = false
         banner.onAllow = { [weak self] in self?.grantAccessForCurrentDocument() }
         banner.onDismiss = { [weak self] in self?.dismissBannerForCurrentDocument() }
-        // The accessory's height tracks the banner's intrinsic content size;
-        // the title bar reserves exactly that much extra space below the toolbar.
         banner.heightAnchor.constraint(greaterThanOrEqualToConstant: 38).isActive = true
 
         let accessory = NSTitlebarAccessoryViewController()
@@ -623,20 +618,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         if visible {
             banner.update(folderName: folderName)
         }
-        if accessory.isHidden != !visible {
+        if accessory.isHidden == visible {
             accessory.isHidden = !visible
         }
-    }
-
-    private func resolvedAssetBase(for fileURL: URL) -> URL? {
-        // Reuse access already active for the current document so file-watcher
-        // re-renders never lose the base URL or re-flicker the banner.
-        if let existing = currentAssetBaseURL,
-           fileURL.deletingLastPathComponent().standardizedFileURL.path
-            .hasPrefix(existing.standardizedFileURL.path) {
-            return existing
-        }
-        return SandboxAccessManager.shared.currentAccessURL(forParentOf: fileURL)
     }
 
     private func grantAccessForCurrentDocument() {

@@ -4,7 +4,6 @@
 //
 
 import AppKit
-import CryptoKit
 import Foundation
 
 @MainActor
@@ -15,33 +14,28 @@ final class SandboxAccessManager {
     private static let bookmarkKeyPrefix = "MarkdownPreview.folderBookmark."
     private static let declinedKeyPrefix = "MarkdownPreview.folderDeclined."
 
-    // Folder URL → started security-scoped extension.
     private var activeAccess: [URL: URL] = [:]
 
     private init() {}
 
     /// Returns access to the parent folder of `fileURL` if it's already active
-    /// or restorable from a saved bookmark. Never prompts the user.
+    /// (under any granted ancestor) or restorable from a saved bookmark. Never
+    /// prompts the user.
     func currentAccessURL(forParentOf fileURL: URL) -> URL? {
         let parent = fileURL.deletingLastPathComponent()
-        if let active = activeAccess[parent] {
-            return active
-        }
+        if let active = activeContaining(parent) { return active }
         return restoreAccess(for: parent)
     }
 
-    /// Whether the user has previously declined access to this folder. The
-    /// banner respects this so we don't keep nagging.
     func hasDeclined(forParentOf fileURL: URL) -> Bool {
         let parent = fileURL.deletingLastPathComponent()
         return UserDefaults.standard.bool(forKey: Self.declinedKey(for: parent))
     }
 
-    /// Mark the parent folder as declined. Clears any prior bookmark too so a
-    /// future grant request starts from a clean slate.
     func markDeclined(forParentOf fileURL: URL) {
         let parent = fileURL.deletingLastPathComponent()
         UserDefaults.standard.set(true, forKey: Self.declinedKey(for: parent))
+        UserDefaults.standard.removeObject(forKey: Self.bookmarkKey(for: parent))
     }
 
     /// Prompt the user (Powerbox) for access to the parent folder. Returns the
@@ -49,18 +43,11 @@ final class SandboxAccessManager {
     @discardableResult
     func requestAccess(forParentOf fileURL: URL) -> URL? {
         let parent = fileURL.deletingLastPathComponent()
-        if let active = activeAccess[parent] {
-            return active
-        }
-        if let restored = restoreAccess(for: parent) {
-            return restored
-        }
-        if let granted = promptForAccess(to: parent) {
-            // Successful grant clears any old "declined" sticky.
-            UserDefaults.standard.removeObject(forKey: Self.declinedKey(for: parent))
-            return granted
-        }
-        return nil
+        if let active = activeContaining(parent) { return active }
+        if let restored = restoreAccess(for: parent) { return restored }
+        guard let granted = promptForAccess(to: parent) else { return nil }
+        UserDefaults.standard.removeObject(forKey: Self.declinedKey(for: parent))
+        return granted
     }
 
     func releaseAllAccess() {
@@ -70,9 +57,15 @@ final class SandboxAccessManager {
         activeAccess.removeAll()
     }
 
-    func releaseAccess(for folderURL: URL) {
-        guard let url = activeAccess.removeValue(forKey: folderURL) else { return }
-        url.stopAccessingSecurityScopedResource()
+    private func activeContaining(_ folderURL: URL) -> URL? {
+        let target = folderURL.standardizedFileURL.path
+        for granted in activeAccess.values {
+            let base = granted.standardizedFileURL.path
+            if target == base || target.hasPrefix(base + "/") {
+                return granted
+            }
+        }
+        return nil
     }
 
     private func restoreAccess(for folderURL: URL) -> URL? {
@@ -98,13 +91,11 @@ final class SandboxAccessManager {
             return nil
         }
 
-        if isStale {
-            if let refreshed = try? resolved.bookmarkData(options: .withSecurityScope) {
-                UserDefaults.standard.set(refreshed, forKey: key)
-            }
+        if isStale, let refreshed = try? resolved.bookmarkData(options: .withSecurityScope) {
+            UserDefaults.standard.set(refreshed, forKey: key)
         }
 
-        activeAccess[folderURL] = resolved
+        activeAccess[resolved] = resolved
         return resolved
     }
 
@@ -118,9 +109,7 @@ final class SandboxAccessManager {
         panel.prompt = "Grant Access"
         panel.message = "Markdown Preview needs access to “\(folderURL.lastPathComponent)” to display local images and other relative assets. This is a one-time prompt per folder."
 
-        guard panel.runModal() == .OK, let granted = panel.url else {
-            return nil
-        }
+        guard panel.runModal() == .OK, let granted = panel.url else { return nil }
 
         do {
             let data = try granted.bookmarkData(options: .withSecurityScope)
@@ -131,25 +120,14 @@ final class SandboxAccessManager {
 
         guard granted.startAccessingSecurityScopedResource() else { return nil }
         activeAccess[granted] = granted
-        // Also key by the requested folder so a later identical lookup hits the cache,
-        // even if the user picked an ancestor of the requested folder.
-        if granted != folderURL {
-            activeAccess[folderURL] = granted
-        }
         return granted
     }
 
     private static func bookmarkKey(for folderURL: URL) -> String {
-        bookmarkKeyPrefix + digest(folderURL.standardizedFileURL.path)
+        bookmarkKeyPrefix + folderURL.standardizedFileURL.path
     }
 
     private static func declinedKey(for folderURL: URL) -> String {
-        declinedKeyPrefix + digest(folderURL.standardizedFileURL.path)
-    }
-
-    private static func digest(_ string: String) -> String {
-        let data = Data(string.utf8)
-        let hash = SHA256.hash(data: data)
-        return hash.map { String(format: "%02x", $0) }.joined()
+        declinedKeyPrefix + folderURL.standardizedFileURL.path
     }
 }

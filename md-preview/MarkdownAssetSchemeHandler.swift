@@ -19,32 +19,41 @@ final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
     private let lock = NSLock()
     private var _baseURL: URL?
 
-    var baseURL: URL? {
-        get {
-            lock.lock(); defer { lock.unlock() }
-            return _baseURL
+    func setBaseURL(_ url: URL?) {
+        lock.lock(); defer { lock.unlock() }
+        _baseURL = url
+    }
+
+    private func currentBaseURL() -> URL? {
+        lock.lock(); defer { lock.unlock() }
+        return _baseURL
+    }
+
+    /// Resolves an `md-asset://…` URL against `base`, rejecting path-traversal
+    /// that escapes the granted folder. Returns `nil` for malformed input.
+    static func resolve(_ assetURL: URL, against base: URL) -> URL? {
+        var path = assetURL.path
+        while path.hasPrefix("/") { path.removeFirst() }
+        guard !path.isEmpty else { return nil }
+
+        let candidate = base.appendingPathComponent(path).standardizedFileURL
+        let basePath = base.standardizedFileURL.path
+        guard candidate.path == basePath
+                || candidate.path.hasPrefix(basePath + "/") else {
+            return nil
         }
-        set {
-            lock.lock(); defer { lock.unlock() }
-            _baseURL = newValue
-        }
+        return candidate
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
         let request = urlSchemeTask.request
-        let base = baseURL
+        let base = currentBaseURL()
         let wrapper = TaskWrapper(task: urlSchemeTask)
 
         queue.async {
-            guard let base, let requestURL = request.url else {
+            guard let base, let requestURL = request.url,
+                  let resolved = Self.resolve(requestURL, against: base) else {
                 wrapper.task.didFailWithError(URLError(.badURL))
-                return
-            }
-
-            // The path-stripping leaves us with just the relative bit so we
-            // can resolve safely against the granted base directory.
-            guard let resolved = Self.resolve(requestURL: requestURL, against: base) else {
-                wrapper.task.didFailWithError(URLError(.unsupportedURL))
                 return
             }
 
@@ -73,37 +82,14 @@ final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
         }
     }
 
-    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
-        // No persistent task state to cancel — reads are synchronous on the queue.
-    }
+    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
 
     private struct TaskWrapper: @unchecked Sendable {
         let task: any WKURLSchemeTask
     }
 
-    private static func resolve(requestURL: URL, against base: URL) -> URL? {
-        // md-asset:///images/foo.png → path = "/images/foo.png"
-        var path = requestURL.path
-        while path.hasPrefix("/") {
-            path.removeFirst()
-        }
-        guard !path.isEmpty else { return nil }
-
-        let candidate = base.appendingPathComponent(path).standardizedFileURL
-        let baseStandardized = base.standardizedFileURL
-        // Reject path traversal that escapes the granted folder.
-        guard candidate.path.hasPrefix(baseStandardized.path + "/")
-                || candidate.path == baseStandardized.path else {
-            return nil
-        }
-        return candidate
-    }
-
     private static func mimeType(for url: URL) -> String {
-        if let type = UTType(filenameExtension: url.pathExtension),
-           let mime = type.preferredMIMEType {
-            return mime
-        }
-        return "application/octet-stream"
+        UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream"
     }
 }

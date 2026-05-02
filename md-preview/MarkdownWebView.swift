@@ -11,6 +11,7 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     let webView: WKWebView
     var heightDidChange: ((CGFloat) -> Void)?
     private let assetScheme = MarkdownAssetScheme()
+    private var currentAssetBase: URL?
     private var scheduledHeightUpdates: [DispatchWorkItem] = []
     private var lastMeasuredWidth: CGFloat = 0
 
@@ -51,10 +52,11 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     }
 
     func display(markdown: String, assetBaseURL: URL? = nil) {
-        assetScheme.baseURL = assetBaseURL
+        assetScheme.setBaseURL(assetBaseURL)
         let baseHref = assetBaseURL == nil ? nil : "\(MarkdownAssetScheme.scheme):///"
         let html = MarkdownHTML.makeHTML(from: markdown, assetBaseHref: baseHref)
         webView.loadHTMLString(html, baseURL: nil)
+        currentAssetBase = assetBaseURL
     }
 
     func recalculateDocumentHeight() {
@@ -255,23 +257,16 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
         if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url {
             if url.scheme == MarkdownAssetScheme.scheme,
-               let base = assetScheme.baseURL {
-                let resolved = resolveAssetURL(url, against: base)
+               let base = currentAssetBase,
+               let resolved = MarkdownAssetScheme.resolve(url, against: base) {
                 NSWorkspace.shared.open(resolved)
-            } else {
+            } else if url.scheme != MarkdownAssetScheme.scheme {
                 NSWorkspace.shared.open(url)
             }
             decisionHandler(.cancel)
             return
         }
         decisionHandler(.allow)
-    }
-
-    private func resolveAssetURL(_ url: URL, against base: URL) -> URL {
-        var path = url.path
-        while path.hasPrefix("/") { path.removeFirst() }
-        guard !path.isEmpty else { return base }
-        return base.appendingPathComponent(path)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

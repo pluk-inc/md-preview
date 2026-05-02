@@ -12,6 +12,10 @@ enum MarkdownAssetScanner {
     /// fenced code blocks, inline code, absolute paths, and any URL with a
     /// scheme (http, https, mailto, data, etc.).
     static func hasRelativeLocalRefs(_ markdown: String) -> Bool {
+        // Skip the strip-code allocation and regex passes when the markdown
+        // can't possibly contain a link or reference definition.
+        guard markdown.contains("](") || markdown.contains("]:") else { return false }
+
         let stripped = stripCode(markdown)
         let nsString = stripped as NSString
         let range = NSRange(location: 0, length: nsString.length)
@@ -45,12 +49,9 @@ enum MarkdownAssetScanner {
 
     private static func isRelativeLocal(_ destination: String) -> Bool {
         let trimmed = destination.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return false }
-        if trimmed.hasPrefix("#") { return false }
-        if trimmed.hasPrefix("/") { return false }
-        if trimmed.hasPrefix("~") { return false }
+        guard let first = trimmed.first, !"#/~".contains(first) else { return false }
+        if trimmed.contains("://") { return false }
         if let scheme = URL(string: trimmed)?.scheme, !scheme.isEmpty { return false }
-        // Pure fragments / queries already filtered above.
         return true
     }
 
