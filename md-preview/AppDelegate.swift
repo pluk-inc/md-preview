@@ -31,12 +31,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     private var hasLaunched = false
     private var currentFileURL: URL?
     private var currentMarkdown: String?
+    private var currentAssetBaseURL: URL?
     private var fileWatcher: FileWatcher?
     private var isInspectorToggleSelected = false
     private weak var openWithItem: NSMenuToolbarItem?
     private weak var inspectorItem: NSToolbarItem?
     private weak var inspectorButton: NSButton?
     private weak var searchField: NSSearchField?
+    private var accessBanner: MissingFolderAccessBanner?
+    private var accessBannerAccessory: NSTitlebarAccessoryViewController?
 
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let url = urls.first else { return }
@@ -60,6 +63,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         window.toolbar = toolbar
         window.toolbarStyle = .unified
 
+        installAccessBanner()
+
         hasLaunched = true
 
         if let url = pendingLaunchURL {
@@ -79,6 +84,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     private func present(url: URL) {
         currentFileURL = url
         currentMarkdown = nil
+        currentAssetBaseURL = nil
         window.title = url.lastPathComponent
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
@@ -566,8 +572,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
                 switch result {
                 case .success(let text):
                     self.currentMarkdown = text
-                    (self.window.contentViewController as? MainSplitViewController)?
-                        .display(markdown: text, fileName: url.lastPathComponent, url: url)
+                    self.renderCurrentDocument(text: text, fileURL: url)
                 case .failure(let error):
                     if !silentOnFailure {
                         NSAlert(error: error).beginSheetModal(for: self.window)
@@ -575,6 +580,78 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
                 }
             }
         }
+    }
+
+    private func renderCurrentDocument(text: String, fileURL: URL) {
+        let assetBase = resolvedAssetBase(for: fileURL)
+        currentAssetBaseURL = assetBase
+
+        let needsBanner = assetBase == nil
+            && MarkdownAssetScanner.hasRelativeLocalRefs(text)
+            && !SandboxAccessManager.shared.hasDeclined(forParentOf: fileURL)
+        updateAccessBanner(visible: needsBanner,
+                           folderName: fileURL.deletingLastPathComponent().lastPathComponent)
+
+        (window.contentViewController as? MainSplitViewController)?
+            .display(markdown: text,
+                     fileName: fileURL.lastPathComponent,
+                     url: fileURL,
+                     assetBaseURL: assetBase)
+    }
+
+    private func installAccessBanner() {
+        let banner = MissingFolderAccessBanner()
+        banner.translatesAutoresizingMaskIntoConstraints = false
+        banner.onAllow = { [weak self] in self?.grantAccessForCurrentDocument() }
+        banner.onDismiss = { [weak self] in self?.dismissBannerForCurrentDocument() }
+        // The accessory's height tracks the banner's intrinsic content size;
+        // the title bar reserves exactly that much extra space below the toolbar.
+        banner.heightAnchor.constraint(greaterThanOrEqualToConstant: 38).isActive = true
+
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.layoutAttribute = .bottom
+        accessory.view = banner
+        accessory.isHidden = true
+        window.addTitlebarAccessoryViewController(accessory)
+
+        self.accessBanner = banner
+        self.accessBannerAccessory = accessory
+    }
+
+    private func updateAccessBanner(visible: Bool, folderName: String) {
+        guard let accessory = accessBannerAccessory, let banner = accessBanner else { return }
+        if visible {
+            banner.update(folderName: folderName)
+        }
+        if accessory.isHidden != !visible {
+            accessory.isHidden = !visible
+        }
+    }
+
+    private func resolvedAssetBase(for fileURL: URL) -> URL? {
+        // Reuse access already active for the current document so file-watcher
+        // re-renders never lose the base URL or re-flicker the banner.
+        if let existing = currentAssetBaseURL,
+           fileURL.deletingLastPathComponent().standardizedFileURL.path
+            .hasPrefix(existing.standardizedFileURL.path) {
+            return existing
+        }
+        return SandboxAccessManager.shared.currentAccessURL(forParentOf: fileURL)
+    }
+
+    private func grantAccessForCurrentDocument() {
+        guard let url = currentFileURL, let text = currentMarkdown else { return }
+        guard SandboxAccessManager.shared.requestAccess(forParentOf: url) != nil else {
+            // User cancelled the panel — leave the banner up so they can retry.
+            return
+        }
+        renderCurrentDocument(text: text, fileURL: url)
+    }
+
+    private func dismissBannerForCurrentDocument() {
+        guard let url = currentFileURL, let text = currentMarkdown else { return }
+        SandboxAccessManager.shared.markDeclined(forParentOf: url)
+        renderCurrentDocument(text: text, fileURL: url)
     }
 }
 

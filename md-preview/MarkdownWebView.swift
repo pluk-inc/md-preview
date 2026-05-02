@@ -10,11 +10,13 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
 
     let webView: WKWebView
     var heightDidChange: ((CGFloat) -> Void)?
+    private let assetScheme = MarkdownAssetScheme()
     private var scheduledHeightUpdates: [DispatchWorkItem] = []
     private var lastMeasuredWidth: CGFloat = 0
 
     override init(frame frameRect: NSRect) {
         let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(assetScheme, forURLScheme: MarkdownAssetScheme.scheme)
         webView = NonScrollingWKWebView(frame: .zero, configuration: config)
         super.init(frame: frameRect)
 
@@ -48,8 +50,11 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         neutralizeWebKitScrollEdgeInsets()
     }
 
-    func display(markdown: String) {
-        webView.loadHTMLString(MarkdownHTML.makeHTML(from: markdown), baseURL: nil)
+    func display(markdown: String, assetBaseURL: URL? = nil) {
+        assetScheme.baseURL = assetBaseURL
+        let baseHref = assetBaseURL == nil ? nil : "\(MarkdownAssetScheme.scheme):///"
+        let html = MarkdownHTML.makeHTML(from: markdown, assetBaseHref: baseHref)
+        webView.loadHTMLString(html, baseURL: nil)
     }
 
     func recalculateDocumentHeight() {
@@ -249,11 +254,24 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
                  decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
         if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url {
-            NSWorkspace.shared.open(url)
+            if url.scheme == MarkdownAssetScheme.scheme,
+               let base = assetScheme.baseURL {
+                let resolved = resolveAssetURL(url, against: base)
+                NSWorkspace.shared.open(resolved)
+            } else {
+                NSWorkspace.shared.open(url)
+            }
             decisionHandler(.cancel)
             return
         }
         decisionHandler(.allow)
+    }
+
+    private func resolveAssetURL(_ url: URL, against base: URL) -> URL {
+        var path = url.path
+        while path.hasPrefix("/") { path.removeFirst() }
+        guard !path.isEmpty else { return base }
+        return base.appendingPathComponent(path)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

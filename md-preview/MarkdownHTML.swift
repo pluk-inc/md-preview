@@ -7,7 +7,9 @@ import Foundation
 import Markdown
 
 enum MarkdownHTML {
-    static func makeHTML(from markdown: String, allowsScroll: Bool = false) -> String {
+    static func makeHTML(from markdown: String,
+                         allowsScroll: Bool = false,
+                         assetBaseHref: String? = nil) -> String {
         let body = injectHeadingIDs(in: HTMLFormatter.format(markdown))
         let scrollOverride = allowsScroll ? """
         <style>
@@ -15,12 +17,14 @@ enum MarkdownHTML {
         ::-webkit-scrollbar { display: initial !important; width: auto !important; height: auto !important; }
         </style>
         """ : ""
+        let baseTag = assetBaseHref.map { "<base href=\"\($0)\">" } ?? ""
         return """
         <!DOCTYPE html>
         <html>
         <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        \(baseTag)
         <style>\(stylesheet)</style>
         \(scrollOverride)
         </head>

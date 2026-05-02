@@ -40,12 +40,13 @@ final class MainSplitViewController: NSSplitViewController {
         display(
             markdown: "# md-preview\n\nWKWebView pipeline is live. Replace this call site once real file loading is wired up.",
             fileName: "Sample.md",
-            url: nil
+            url: nil,
+            assetBaseURL: nil
         )
     }
 
-    func display(markdown: String, fileName: String, url: URL?) {
-        contentViewController?.display(markdown: markdown)
+    func display(markdown: String, fileName: String, url: URL?, assetBaseURL: URL?) {
+        contentViewController?.display(markdown: markdown, assetBaseURL: assetBaseURL)
         sidebarViewController?.display(markdown: markdown, fileName: fileName)
         inspectorViewController?.display(metadata: DocumentMetadata.make(url: url, markdown: markdown))
     }

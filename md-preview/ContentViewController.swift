@@ -62,8 +62,8 @@ final class ContentViewController: NSViewController {
         webView.recalculateDocumentHeight()
     }
 
-    func display(markdown: String) {
-        webView.display(markdown: markdown)
+    func display(markdown: String, assetBaseURL: URL? = nil) {
+        webView.display(markdown: markdown, assetBaseURL: assetBaseURL)
     }
 
     func find(_ query: String, backwards: Bool = false) {
