@@ -10,7 +10,10 @@
 			<true/>
 			<key>QLSupportedContentTypes</key>
 			<array>
+				<string>public.markdown</string>
 				<string>net.daringfireball.markdown</string>
+				<string>net.ia.markdown</string>
+				<string>com.unknown.md</string>
 			</array>
 			<key>QLSupportsSearchableItems</key>
 			<false/>
