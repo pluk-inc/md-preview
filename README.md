@@ -31,6 +31,7 @@
 ## Features
 
 - **Native rendering** — `WKWebView` pipeline backed by [swift-markdown](https://github.com/swiftlang/swift-markdown), with heading anchors and link handling.
+- **Mermaid diagrams** — fenced `mermaid` code blocks render as diagrams in both the app and Quick Look previews, using a bundled renderer so previews work offline without a CDN request.
 - **Document outline** — sidebar TOC that mirrors your headings; click to jump.
 - **Inspector panel** — toggleable side panel with file metadata.
 - **In-document search** — toolbar search field plus standard <kbd>⌘F</kbd> / <kbd>⌘G</kbd> / <kbd>⌘⇧G</kbd> for next/previous match.
@@ -97,6 +98,7 @@ Pull requests are welcome. For larger changes, please open an issue first to dis
 ## Acknowledgments
 
 - [swift-markdown](https://github.com/swiftlang/swift-markdown) — Markdown parser (Apple, cmark-gfm-backed)
+- [Mermaid](https://mermaid.js.org/) — bundled diagram renderer for `mermaid` fenced code blocks
 - [Sparkle](https://sparkle-project.org) — Auto-update framework
 - [Amore](http://amore.computer/) — macOS release automation (signing, notarization, DMG, hosting, appcast)
 

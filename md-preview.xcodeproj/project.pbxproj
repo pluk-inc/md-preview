@@ -12,6 +12,8 @@
 		9A0209C12FA1100200092060 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 9A0209C22FA1100200092060 /* Sparkle */; };
 		9A33940A2FA5AF500015D9A4 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 9A3394092FA5AF500015D9A4 /* Markdown */; };
 		9A33940C2FA5AF500015D9A4 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 9A33940B2FA5AF500015D9A4 /* Markdown */; };
+		9AF000000000000000000003 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 9AF000000000000000000101 /* mermaid.min.js */; };
+		9AF000000000000000000004 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 9AF000000000000000000102 /* LICENSE */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -43,6 +45,8 @@
 		9A02092D2FA10D4C00092060 /* quick-look.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "quick-look.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		9A02092F2FA10D4C00092060 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
 		9A0209A02FA1100100092060 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
+		9AF000000000000000000101 /* mermaid.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = mermaid.min.js; path = md-preview/Vendor/Mermaid/mermaid.min.js; sourceTree = "<group>"; };
+		9AF000000000000000000102 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; name = LICENSE; path = md-preview/Vendor/Mermaid/LICENSE; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -110,6 +114,8 @@
 			isa = PBXGroup;
 			children = (
 				9A0209A02FA1100100092060 /* Version.xcconfig */,
+				9AF000000000000000000101 /* mermaid.min.js */,
+				9AF000000000000000000102 /* LICENSE */,
 				9A0207C32FA0ED7C00092060 /* md-preview */,
 				9A0209312FA10D4C00092060 /* quick-look */,
 				9A02092E2FA10D4C00092060 /* Frameworks */,
@@ -240,6 +246,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9AF000000000000000000003 /* mermaid.min.js in Resources */,
+				9AF000000000000000000004 /* LICENSE in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

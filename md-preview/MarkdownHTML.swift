@@ -10,7 +10,8 @@ enum MarkdownHTML {
     static func makeHTML(from markdown: String,
                          allowsScroll: Bool = false,
                          assetBaseHref: String? = nil) -> String {
-        let body = injectHeadingIDs(in: HTMLFormatter.format(MarkdownFrontmatter.split(markdown).body))
+        let renderedBody = renderMermaidBlocks(in: HTMLFormatter.format(MarkdownFrontmatter.split(markdown).body))
+        let body = injectHeadingIDs(in: renderedBody.html)
         let scrollOverride = allowsScroll ? """
         <style>
         html, body { overflow: auto !important; }
@@ -27,6 +28,7 @@ enum MarkdownHTML {
         \(baseTag)
         <style>\(stylesheet)</style>
         \(scrollOverride)
+        \(renderedBody.containsMermaid ? mermaidScript : "")
         </head>
         <body>
         <article class="markdown-body">
@@ -67,6 +69,109 @@ enum MarkdownHTML {
         result += nsHtml.substring(from: cursor)
         return result
     }
+    private struct MermaidRenderResult {
+        let html: String
+        let containsMermaid: Bool
+    }
+
+    private static let mermaidRegex: NSRegularExpression = {
+        // swiftlint:disable:next force_try
+        try! NSRegularExpression(
+            pattern: #"<pre><code class="language-mermaid">([\s\S]*?)</code></pre>"#
+        )
+    }()
+
+    private static func renderMermaidBlocks(in html: String) -> MermaidRenderResult {
+        let nsHtml = html as NSString
+        let matches = mermaidRegex.matches(
+            in: html,
+            range: NSRange(location: 0, length: nsHtml.length)
+        )
+        guard !matches.isEmpty else {
+            return MermaidRenderResult(html: html, containsMermaid: false)
+        }
+
+        var result = ""
+        result.reserveCapacity(html.count)
+        var cursor = 0
+
+        for match in matches {
+            result += nsHtml.substring(with: NSRange(
+                location: cursor,
+                length: match.range.location - cursor
+            ))
+            let diagram = nsHtml.substring(with: match.range(at: 1))
+            result += """
+            <div class="mermaid" role="img" aria-label="Mermaid diagram">
+            \(diagram)
+            </div>
+            """
+            cursor = match.range.location + match.range.length
+        }
+
+        result += nsHtml.substring(from: cursor)
+        return MermaidRenderResult(html: result, containsMermaid: true)
+    }
+
+    private static var mermaidScript: String {
+        guard let script = bundledMermaidScript else {
+            return """
+            <script>
+            window.addEventListener('load', () => {
+                document.querySelectorAll('.mermaid').forEach((node) => {
+                    node.classList.add('mermaid-error');
+                    node.textContent = 'Mermaid renderer is unavailable.\\n\\n' + node.textContent;
+                });
+            });
+            </script>
+            """
+        }
+
+        return """
+        <script>
+        \(script)
+
+        window.addEventListener('load', async () => {
+            const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            try {
+                mermaid.initialize({
+                    startOnLoad: false,
+                    theme: darkMode ? 'dark' : 'default',
+                    securityLevel: 'strict',
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
+                });
+                await mermaid.run({ querySelector: '.mermaid' });
+            } catch (error) {
+                document.querySelectorAll('.mermaid').forEach((node) => {
+                    node.classList.add('mermaid-error');
+                });
+                console.error('Mermaid rendering failed', error);
+            }
+        });
+        </script>
+        """
+    }
+
+    private static var bundledMermaidScript: String? {
+        let bundles = [Bundle.main, Bundle(for: MarkdownHTMLBundleToken.self)]
+        for bundle in bundles {
+            let urls = [
+                bundle.url(
+                    forResource: "mermaid.min",
+                    withExtension: "js",
+                    subdirectory: "Vendor/Mermaid"
+                ),
+                bundle.url(forResource: "mermaid.min", withExtension: "js"),
+            ]
+            for url in urls.compactMap({ $0 }) {
+                guard let script = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                return script.replacingOccurrences(of: "</script", with: "<\\/script")
+            }
+        }
+        return nil
+    }
+
+    private final class MarkdownHTMLBundleToken {}
 
 
     // Mirrors MarkdownUI's Theme.docC. Top-only margins (bottom: 0), Apple SF
@@ -164,6 +269,24 @@ enum MarkdownHTML {
     pre code {
         padding: 0;
         background: transparent;
+        font-size: 0.88em;
+    }
+    .mermaid {
+        margin: 1.6em 0 0;
+        padding: 16px;
+        background: var(--code-bg);
+        border-radius: 15px;
+        overflow-x: auto;
+        text-align: center;
+    }
+    .mermaid svg {
+        max-width: 100%;
+        height: auto;
+    }
+    .mermaid-error {
+        text-align: left;
+        white-space: pre-wrap;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
         font-size: 0.88em;
     }
 

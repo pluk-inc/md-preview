@@ -57,6 +57,17 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         let html = MarkdownHTML.makeHTML(from: markdown, assetBaseHref: baseHref)
         webView.loadHTMLString(html, baseURL: nil)
         currentAssetBase = assetBaseURL
+        if markdown.localizedCaseInsensitiveContains("```mermaid") {
+            scheduleMermaidHeightUpdates()
+        }
+    }
+
+    private func scheduleMermaidHeightUpdates() {
+        for delay in [0.6, 1.2, 2.4] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.recalculateDocumentHeight()
+            }
+        }
     }
 
     func recalculateDocumentHeight() {
