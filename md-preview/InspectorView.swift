@@ -50,17 +50,52 @@ extension DocumentMetadata {
 
 struct InspectorView: View {
     let metadata: DocumentMetadata
+    @State private var tab: Tab = .document
+
+    enum Tab: String, CaseIterable, Identifiable {
+        case document = "Document"
+        case properties = "Properties"
+        var id: String { rawValue }
+
+        var systemImage: String {
+            switch self {
+            case .document: return "doc"
+            case .properties: return "info"
+            }
+        }
+    }
 
     var body: some View {
-        Form {
-            if !metadata.frontmatter.isEmpty {
-                Section("Properties") {
-                    ForEach(metadata.frontmatter) { entry in
-                        LabeledContent(entry.key, value: entry.value)
-                    }
-                }
-            }
+        VStack(spacing: 0) {
+            tabPicker
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
 
+            switch tab {
+            case .document: documentTab
+            case .properties: propertiesTab
+            }
+        }
+    }
+
+    private var tabPicker: some View {
+        Picker("Inspector tab", selection: $tab) {
+            ForEach(Tab.allCases) { tab in
+                Image(systemName: tab.systemImage)
+                    .accessibilityLabel(tab.rawValue)
+                    .tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.large)
+        .modifier(TabPickerSizing())
+    }
+
+    private var documentTab: some View {
+        Form {
             Section {
                 LabeledContent("File Name", value: metadata.fileName)
                 LabeledContent("Document Type", value: "Markdown Document")
@@ -90,5 +125,33 @@ struct InspectorView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private var propertiesTab: some View {
+        if metadata.frontmatter.isEmpty {
+            Text("No YAML frontmatter")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Form {
+                Section {
+                    ForEach(metadata.frontmatter) { entry in
+                        LabeledContent(entry.key, value: entry.value)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+        }
+    }
+}
+
+private struct TabPickerSizing: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.buttonSizing(.flexible)
+        } else {
+            content.fixedSize()
+        }
     }
 }

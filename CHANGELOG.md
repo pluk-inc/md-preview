@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.8] – 2026-05-03
+
+Tabbed Inspector with native segmented picker.
+
+- **Inspector now has Document and Properties tabs.** A native segmented picker with SF Symbol icons (doc / info) splits the panel into a Document tab for file and content stats and a Properties tab for YAML frontmatter, instead of stacking everything in one scrolling list.
+- **Empty Properties tab shows a placeholder.** Documents without frontmatter now display "No YAML frontmatter" filling the available space, so the tab doesn't collapse to nothing.
+- **Picker matches Apple's pill-style segmented look on macOS 26 Tahoe.** Uses `.controlSize(.large)` plus `.buttonSizing(.flexible)` on Tahoe and falls back to `.fixedSize()` on macOS 15 Sequoia.
+
 ## [0.0.7] – 2026-05-03
 
 YAML frontmatter rendering fix and Inspector metadata.
