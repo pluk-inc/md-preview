@@ -14,6 +14,14 @@
 
 > Drop a `.md` on the icon (or set Markdown Preview as your default handler) and get a clean, scrollable preview with a real document outline — no Electron, no browser tab.
 
+## Installation
+
+```sh
+brew install --cask pluk-inc/tap/markdown-preview
+```
+
+Or grab the latest signed and notarized DMG from the [Releases](https://github.com/pluk-inc/md-preview.app/releases) page.
+
 ## Screenshots
 
 <p align="center">
@@ -59,10 +67,6 @@ flowchart TD
 
 `.md`, `.markdown`, `.mdown`, `.txt`
 UTI: `net.daringfireball.markdown`
-
-## Installation
-
-Grab the latest signed and notarized DMG from the [Releases](https://github.com/pluk-inc/md-preview.app/releases) page.
 
 ## Requirements
 

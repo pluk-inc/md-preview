@@ -13,6 +13,10 @@
 # Source of truth:
 #   - Version.xcconfig  → MARKETING_VERSION, CURRENT_PROJECT_VERSION
 #   - CHANGELOG.md      → release notes (## [X.Y.Z] – YYYY-MM-DD)
+#
+# After amore publishes, this also bumps the Homebrew tap at
+# pluk-inc/homebrew-tap (Casks/markdown-preview.rb) so `brew upgrade
+# --cask` users converge on the new version. Skipped on --beta / --draft.
 
 set -euo pipefail
 
@@ -166,6 +170,46 @@ if [[ -z "$DMG_URL" ]]; then
 fi
 echo "▸ DMG: $DMG_URL"
 
+# ── Download DMG (used by cask bump + GH release) ──────────────────────────
+SHOULD_BUMP_CASK=true
+[[ -n "$BETA_FLAG$DRAFT_FLAG" ]] && SHOULD_BUMP_CASK=false
+
+DMG_PATH=""
+if $SHOULD_BUMP_CASK || ! $SKIP_GH; then
+    DMG_PATH="$(mktemp -d)/Markdown-Preview.dmg"
+    echo "▸ Downloading DMG"
+    curl -fsSL -o "$DMG_PATH" "$DMG_URL"
+fi
+
+# ── Bump pluk-inc/homebrew-tap ─────────────────────────────────────────────
+if $SHOULD_BUMP_CASK; then
+    echo "▸ Bumping pluk-inc/homebrew-tap"
+    DMG_SHA="$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
+    TAP_DIR="$(mktemp -d)/homebrew-tap"
+    if git clone --depth=1 --quiet git@github.com:pluk-inc/homebrew-tap.git "$TAP_DIR"; then
+        CASK_FILE="$TAP_DIR/Casks/markdown-preview.rb"
+        /usr/bin/sed -i '' -E "s|^  version \".*\"|  version \"$VERSION,$BUILD\"|" "$CASK_FILE"
+        /usr/bin/sed -i '' -E "s|^  sha256 \".*\"|  sha256 \"$DMG_SHA\"|"          "$CASK_FILE"
+        if ! grep -q "version \"$VERSION,$BUILD\"" "$CASK_FILE" || \
+           ! grep -q "sha256 \"$DMG_SHA\""        "$CASK_FILE"; then
+            echo "  ✗ cask sed didn't take — fix Casks/markdown-preview.rb manually"
+        elif (cd "$TAP_DIR" && git diff --quiet); then
+            echo "  ⚠ cask already at $VERSION,$BUILD — nothing to push"
+        else
+            (cd "$TAP_DIR" && \
+                git -c user.name="$(git config user.name)" \
+                    -c user.email="$(git config user.email)" \
+                    commit -am "markdown-preview $VERSION,$BUILD" >/dev/null && \
+                git push --quiet origin HEAD) \
+                && echo "  ✓ pushed cask bump" \
+                || echo "  ✗ push failed — fix manually in pluk-inc/homebrew-tap"
+        fi
+    else
+        echo "  ⚠ failed to clone homebrew-tap — skipping cask bump"
+    fi
+    rm -rf "$(dirname "$TAP_DIR")"
+fi
+
 if $SKIP_GH; then
     echo "✓ Released $VERSION ($BUILD). GitHub step skipped."
     exit 0
@@ -180,10 +224,6 @@ else
     git tag -a "$TAG" -m "Release $VERSION ($BUILD)"
 fi
 git push origin "$TAG" 2>/dev/null || git push origin "$TAG"
-
-DMG_PATH="$(mktemp -d)/Markdown-Preview.dmg"
-echo "▸ Downloading DMG to attach"
-curl -fsSL -o "$DMG_PATH" "$DMG_URL"
 
 PRERELEASE_FLAG=""
 [[ -n "$BETA_FLAG" ]] && PRERELEASE_FLAG="--prerelease"
