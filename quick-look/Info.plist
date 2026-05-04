@@ -14,6 +14,12 @@
 				<string>net.daringfireball.markdown</string>
 				<string>net.ia.markdown</string>
 				<string>com.unknown.md</string>
+				<string>doc.md-preview.mdown</string>
+				<string>doc.md-preview.mkd</string>
+				<string>doc.md-preview.mkdn</string>
+				<string>doc.md-preview.mdwn</string>
+				<string>doc.md-preview.mdtxt</string>
+				<string>doc.md-preview.mdtext</string>
 			</array>
 			<key>QLSupportsSearchableItems</key>
 			<false/>

@@ -17,6 +17,12 @@
 				<string>public.markdown</string>
 				<string>net.ia.markdown</string>
 				<string>com.unknown.md</string>
+				<string>doc.md-preview.mdown</string>
+				<string>doc.md-preview.mkd</string>
+				<string>doc.md-preview.mkdn</string>
+				<string>doc.md-preview.mdwn</string>
+				<string>doc.md-preview.mdtxt</string>
+				<string>doc.md-preview.mdtext</string>
 			</array>
 		</dict>
 	</array>
@@ -43,12 +49,6 @@
 				<array>
 					<string>md</string>
 					<string>markdown</string>
-					<string>mdown</string>
-					<string>mkd</string>
-					<string>mkdn</string>
-					<string>mdwn</string>
-					<string>mdtxt</string>
-					<string>mdtext</string>
 				</array>
 				<key>public.mime-type</key>
 				<array>
@@ -111,6 +111,111 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>md</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>net.daringfireball.markdown</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document (mdown)</string>
+			<key>UTTypeIdentifier</key>
+			<string>doc.md-preview.mdown</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mdown</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>net.daringfireball.markdown</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document (mkd)</string>
+			<key>UTTypeIdentifier</key>
+			<string>doc.md-preview.mkd</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mkd</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>net.daringfireball.markdown</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document (mkdn)</string>
+			<key>UTTypeIdentifier</key>
+			<string>doc.md-preview.mkdn</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mkdn</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>net.daringfireball.markdown</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document (mdwn)</string>
+			<key>UTTypeIdentifier</key>
+			<string>doc.md-preview.mdwn</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mdwn</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>net.daringfireball.markdown</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document (mdtxt)</string>
+			<key>UTTypeIdentifier</key>
+			<string>doc.md-preview.mdtxt</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mdtxt</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>net.daringfireball.markdown</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document (mdtext)</string>
+			<key>UTTypeIdentifier</key>
+			<string>doc.md-preview.mdtext</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mdtext</string>
 				</array>
 			</dict>
 		</dict>
