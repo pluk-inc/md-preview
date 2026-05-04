@@ -118,11 +118,20 @@ enum MarkdownHTML {
         try! NSRegularExpression(pattern: #"(?<!\\)\$(?=\S)([^\$\n]+?)(?<=\S)\$"#)
     }()
 
-    private static let mathFenceRegex: NSRegularExpression = {
+    // Fenced code block. Group 1 = backtick run, group 2 = info string, group 3 = body.
+    private static let codeFenceRegex: NSRegularExpression = {
         // swiftlint:disable:next force_try
         try! NSRegularExpression(
-            pattern: #"<pre><code class="language-math">([\s\S]*?)</code></pre>"#
+            pattern: #"(?m)^(`{3,})[ \t]*([^\n`]*)\n([\s\S]*?)\n\1[ \t]*$"#
         )
+    }()
+
+    // Inline code span: matched-length backtick runs that are not adjacent to other
+    // backticks. Mirrors CommonMark so spans like `` ` ```math ` `` (single-backtick
+    // delimiters around three inner backticks) tokenize correctly.
+    private static let inlineCodeRegex: NSRegularExpression = {
+        // swiftlint:disable:next force_try
+        try! NSRegularExpression(pattern: #"(?<!`)(`+)(?!`)([^\n]*?)(?<!`)\1(?!`)"#)
     }()
 
     // First alternative captures kind+index for a paragraph-wrapped block token
@@ -139,68 +148,99 @@ enum MarkdownHTML {
     private static func extractMath(from markdown: String) -> MathExtraction {
         var blocks: [String] = []
         var inlines: [String] = []
+        var protected: [String] = []
 
-        let afterBlocks = replaceMatches(of: blockMathRegex, in: markdown) { capture in
+        let nsMarkdown = markdown as NSString
+        let fenceMatches = codeFenceRegex.matches(
+            in: markdown,
+            range: NSRange(location: 0, length: nsMarkdown.length)
+        )
+        var afterFences = ""
+        afterFences.reserveCapacity(markdown.count)
+        var fenceCursor = 0
+        for match in fenceMatches {
+            afterFences += nsMarkdown.substring(with: NSRange(
+                location: fenceCursor,
+                length: match.range.location - fenceCursor
+            ))
+            let info = nsMarkdown
+                .substring(with: match.range(at: 2))
+                .trimmingCharacters(in: .whitespaces)
+                .lowercased()
+            if info == "math" {
+                let body = nsMarkdown.substring(with: match.range(at: 3))
+                blocks.append(body)
+                // Surround with blank lines so swift-markdown wraps the standalone
+                // token in its own <p>, which mathTokenRegex then strips.
+                afterFences += "\n\nMdPreviewMathBlock\(blocks.count - 1)Token\n\n"
+            } else {
+                protected.append(nsMarkdown.substring(with: match.range))
+                afterFences += "MdPreviewProtect\(protected.count - 1)Token"
+            }
+            fenceCursor = match.range.location + match.range.length
+        }
+        afterFences += nsMarkdown.substring(from: fenceCursor)
+
+        // Inline code spans next, so $..$ inside `` `$x$` `` is not extracted.
+        let afterInlineCode = replaceFullMatches(of: inlineCodeRegex, in: afterFences) { full in
+            protected.append(full)
+            return "MdPreviewProtect\(protected.count - 1)Token"
+        }
+
+        let afterBlockMath = replaceMatches(of: blockMathRegex, in: afterInlineCode) { capture in
             defer { blocks.append(capture) }
             return "MdPreviewMathBlock\(blocks.count)Token"
         }
-        let processed = replaceMatches(of: inlineMathRegex, in: afterBlocks) { capture in
+        let afterInlineMath = replaceMatches(of: inlineMathRegex, in: afterBlockMath) { capture in
             defer { inlines.append(capture) }
             return "MdPreviewMathInline\(inlines.count)Token"
         }
+
+        var processed = afterInlineMath
+        for (i, original) in protected.enumerated() {
+            processed = processed.replacingOccurrences(
+                of: "MdPreviewProtect\(i)Token",
+                with: original
+            )
+        }
+
         return MathExtraction(processedMarkdown: processed, blocks: blocks, inlines: inlines)
     }
 
     private static func renderMathBlocks(in html: String,
                                          with math: MathExtraction) -> MathRenderResult {
-        let hasFence = html.contains("language-math")
-        guard !math.blocks.isEmpty || !math.inlines.isEmpty || hasFence else {
+        guard !math.blocks.isEmpty || !math.inlines.isEmpty else {
             return MathRenderResult(html: html, containsMath: false)
         }
 
-        let withTokens: String
-        if math.blocks.isEmpty && math.inlines.isEmpty {
-            withTokens = html
-        } else {
-            let nsHtml = html as NSString
-            let matches = mathTokenRegex.matches(
-                in: html,
-                range: NSRange(location: 0, length: nsHtml.length)
-            )
-            var rebuilt = ""
-            rebuilt.reserveCapacity(html.count)
-            var cursor = 0
-            for match in matches {
-                rebuilt += nsHtml.substring(with: NSRange(
-                    location: cursor,
-                    length: match.range.location - cursor
-                ))
-                let kindRange = match.range(at: 1).location != NSNotFound
-                    ? match.range(at: 1) : match.range(at: 3)
-                let indexRange = match.range(at: 2).location != NSNotFound
-                    ? match.range(at: 2) : match.range(at: 4)
-                let isBlock = nsHtml.substring(with: kindRange) == "Block"
-                let index = Int(nsHtml.substring(with: indexRange)) ?? 0
-                let latex = isBlock ? math.blocks[index] : math.inlines[index]
-                let escaped = htmlEscape(latex)
-                rebuilt += isBlock
-                    ? "<div class=\"math math-display\">\(escaped)</div>"
-                    : "<span class=\"math math-inline\">\(escaped)</span>"
-                cursor = match.range.location + match.range.length
-            }
-            rebuilt += nsHtml.substring(from: cursor)
-            withTokens = rebuilt
+        let nsHtml = html as NSString
+        let matches = mathTokenRegex.matches(
+            in: html,
+            range: NSRange(location: 0, length: nsHtml.length)
+        )
+        var rebuilt = ""
+        rebuilt.reserveCapacity(html.count)
+        var cursor = 0
+        for match in matches {
+            rebuilt += nsHtml.substring(with: NSRange(
+                location: cursor,
+                length: match.range.location - cursor
+            ))
+            let kindRange = match.range(at: 1).location != NSNotFound
+                ? match.range(at: 1) : match.range(at: 3)
+            let indexRange = match.range(at: 2).location != NSNotFound
+                ? match.range(at: 2) : match.range(at: 4)
+            let isBlock = nsHtml.substring(with: kindRange) == "Block"
+            let index = Int(nsHtml.substring(with: indexRange)) ?? 0
+            let latex = isBlock ? math.blocks[index] : math.inlines[index]
+            let escaped = htmlEscape(latex)
+            rebuilt += isBlock
+                ? "<div class=\"math math-display\">\(escaped)</div>"
+                : "<span class=\"math math-inline\">\(escaped)</span>"
+            cursor = match.range.location + match.range.length
         }
-
-        // Pass the fenced block's text through unchanged: the browser decodes
-        // it back to raw LaTeX in textContent, which is what KaTeX consumes.
-        let final = hasFence
-            ? replaceMatches(of: mathFenceRegex, in: withTokens) { body in
-                "<div class=\"math math-display\">\(body)</div>"
-            }
-            : withTokens
-
-        return MathRenderResult(html: final, containsMath: true)
+        rebuilt += nsHtml.substring(from: cursor)
+        return MathRenderResult(html: rebuilt, containsMath: true)
     }
 
     private static let katexHead: String = {
@@ -272,6 +312,19 @@ enum MarkdownHTML {
     private static func replaceMatches(of regex: NSRegularExpression,
                                        in source: String,
                                        transform: (String) -> String) -> String {
+        rewrite(matchesOf: regex, in: source, captureGroup: 1, transform: transform)
+    }
+
+    private static func replaceFullMatches(of regex: NSRegularExpression,
+                                           in source: String,
+                                           transform: (String) -> String) -> String {
+        rewrite(matchesOf: regex, in: source, captureGroup: 0, transform: transform)
+    }
+
+    private static func rewrite(matchesOf regex: NSRegularExpression,
+                                in source: String,
+                                captureGroup: Int,
+                                transform: (String) -> String) -> String {
         let nsSource = source as NSString
         let matches = regex.matches(
             in: source,
@@ -286,7 +339,7 @@ enum MarkdownHTML {
                 location: cursor,
                 length: match.range.location - cursor
             ))
-            result += transform(nsSource.substring(with: match.range(at: 1)))
+            result += transform(nsSource.substring(with: match.range(at: captureGroup)))
             cursor = match.range.location + match.range.length
         }
         result += nsSource.substring(from: cursor)

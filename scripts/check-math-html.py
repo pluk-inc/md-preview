@@ -7,7 +7,8 @@ source = Path("md-preview/MarkdownHTML.swift").read_text()
 checks = {
     "extracts inline $...$ math": "inlineMathRegex" in source,
     "extracts block $$...$$ math": "blockMathRegex" in source,
-    "detects ```math fences": 'language-math' in source and "mathFenceRegex" in source,
+    "detects ```math fences": "codeFenceRegex" in source and 'info == "math"' in source,
+    "skips math inside code spans/fences": "inlineCodeRegex" in source and "MdPreviewProtect" in source,
     "loads bundled KaTeX renderer": "Vendor/KaTeX" in source and "katex.min" in source,
     "does not load KaTeX from a CDN": "cdn.jsdelivr.net/npm/katex" not in source,
     "renders with katex.render": "katex.render" in source,
