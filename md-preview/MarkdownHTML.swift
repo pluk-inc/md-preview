@@ -10,7 +10,7 @@ enum MarkdownHTML {
     static func makeHTML(from markdown: String,
                          allowsScroll: Bool = false,
                          assetBaseHref: String? = nil) -> String {
-        let renderedBody = renderMermaidBlocks(in: HTMLFormatter.format(MarkdownFrontmatter.split(markdown).body))
+        let renderedBody = renderMermaidBlocks(in: EscapingHTMLFormatter.format(MarkdownFrontmatter.split(markdown).body))
         let body = injectHeadingIDs(in: renderedBody.html)
         let scrollOverride = allowsScroll ? """
         <style>
