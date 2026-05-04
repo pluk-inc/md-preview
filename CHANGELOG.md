@@ -2,12 +2,24 @@
 
 ## [0.0.10] – 2026-05-04
 
-LaTeX math, broader file-format support, and a rendering fix for inline HTML.
+LaTeX math rendering, broader Markdown file-format support, and a rendering fix for inline HTML in body text and code.
 
-- **LaTeX math equations now render via KaTeX.** Inline math (`$…$`, `\(…\)`) and display math (`$$…$$`, `\[…\]`) are detected in the Markdown pipeline and typeset on load, in both the app and the Quick Look extension. KaTeX ships inside the bundle, so previews work offline.
-- **Math extraction skips code spans and code fences.** Dollar signs and `\(…\)` sequences inside backticks or fenced code blocks are no longer mistaken for math, so shell snippets like `` `$PATH` `` and code samples render verbatim instead of being swallowed by the math pass.
-- **More Markdown file types open natively.** Added support for `.mkd`, `.mkdn`, `.mdwn`, `.mdtxt`, `.mdtext`, and `.rmd`, alongside the existing `.md` / `.markdown` / `.mdown` / `.txt`. Quick Look and the Open With list pick the app up for these extensions too. Thanks to [@dppeak](https://github.com/dppeak) for the contribution.
-- **HTML in body text and code is now properly escaped.** `a < b`, `Tom & Jerry`, `` `<div>` ``, and fenced code containing `<`, `>`, or `&` previously rendered mangled or vanished entirely because swift-markdown's default `HTMLFormatter` doesn't escape those characters in text or code. A new `EscapingHTMLFormatter` walker handles escaping while still passing raw HTML blocks through verbatim per CommonMark. Thanks to [@yaksher](https://github.com/yaksher) for the bug report.
+### Added
+
+- **LaTeX math now renders via KaTeX.** Inline math (`$…$`, `\(…\)`) and display math (`$$…$$`, `\[…\]`) are typeset on load in both the app and the Quick Look extension. KaTeX ships inside the bundle, so previews work offline.
+- **More Markdown file types open natively.** Added `.mkd`, `.mkdn`, `.mdwn`, `.mdtxt`, `.mdtext`, and `.rmd` alongside the existing `.md` / `.markdown` / `.mdown` / `.txt`. Quick Look and the Open With list pick the app up for these extensions too.
+
+### Fixed
+
+- **Math extraction skips code spans and fences.** Dollar signs and `\(…\)` sequences inside backticks or fenced code blocks are no longer mistaken for math, so snippets like `` `$PATH` `` and code samples render verbatim instead of being eaten by the math pass.
+- **HTML in body text and code is now properly escaped.** `a < b`, `Tom & Jerry`, `` `<div>` ``, and fenced code containing `<`, `>`, or `&` previously rendered mangled or vanished entirely because swift-markdown's default `HTMLFormatter` doesn't escape those characters in text or code. A new `EscapingHTMLFormatter` walker handles escaping while still passing raw HTML blocks through verbatim per CommonMark.
+
+### Contributors
+
+Thanks to the external contributors who shipped in this release:
+
+- [@dppeak](https://github.com/dppeak) — broader Markdown file-format support ([#31](https://github.com/pluk-inc/md-preview.app/pull/31))
+- [@yaksher](https://github.com/yaksher) — reported the HTML-escape bug fixed in [#35](https://github.com/pluk-inc/md-preview.app/pull/35) ([#33](https://github.com/pluk-inc/md-preview.app/issues/33))
 
 ## [0.0.9] – 2026-05-03
 

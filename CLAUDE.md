@@ -30,7 +30,9 @@ One command:
 ./scripts/release.sh --skip-github       # local amore release only
 ```
 
-Before running, **add a `CHANGELOG.md` entry** for the version being shipped:
+Before running, **add a `CHANGELOG.md` entry** for the version being shipped. **Always invoke the `changelog-maintenance` skill** (`.claude/skills/changelog-maintenance`) via the Skill tool whenever the user asks you to write, generate, or update a changelog entry — do not draft freeform. The skill enforces the project's house format, the Keep-a-Changelog category split (Added / Changed / Fixed / Security), and contributor crediting (it always inspects `git log` and `gh pr list` for non-maintainer authors and adds a `### Contributors` block with `@username` GitHub tags when any are found).
+
+Entry shape:
 
 ```md
 ## [0.0.2] – 2026-05-01

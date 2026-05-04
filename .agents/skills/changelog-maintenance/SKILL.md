@@ -1,8 +1,8 @@
 ---
 name: changelog-maintenance
-description: Maintain a clear and informative changelog for software releases. Use when documenting version changes, tracking features, or communicating updates to users. Handles semantic versioning, changelog formats, and release notes.
+description: Maintain a clear and informative changelog for software releases. Use when documenting version changes, tracking features, or communicating updates to users. Always identifies external contributors from git/GitHub and credits them with @username tags. Handles semantic versioning, changelog formats, and release notes.
 metadata:
-  tags: changelog, release-notes, versioning, semantic-versioning, documentation
+  tags: changelog, release-notes, versioning, semantic-versioning, documentation, contributors
   platforms: Claude, ChatGPT, Gemini
 ---
 
@@ -15,6 +15,29 @@ metadata:
 - **Migration guide**: document breaking changes
 
 ## Instructions
+
+### Step 0: Identify contributors (REQUIRED — do this first)
+
+**Always** check who contributed before drafting an entry. Skipping this step is a defect.
+
+1. Determine the previous-release tag/commit. Either parse it from `CHANGELOG.md` (the heading just below the new version) or ask the user.
+2. List commit authors and merged PR authors in the range:
+
+   ```bash
+   # Authors of all commits in the release range
+   git log --format='%h %an <%ae> %s' <prev>..HEAD
+
+   # Merged PRs in the range (if a GitHub remote is configured)
+   gh pr list --state merged --limit 50 \
+     --json number,title,author,mergedAt \
+     --search "merged:>=<prev-merge-date>"
+   ```
+
+3. Identify the maintainer(s) — usually the current `git config user.email` / repo owner — and treat everyone else as an **external contributor** that MUST be credited by GitHub `@username`.
+4. For PRs that close an issue authored by someone other than the PR author (e.g. `Closes #33`), inspect the issue with `gh issue view <n> --json author` and credit the **reporter** as well.
+5. Resolve every contributor's GitHub `login` (the `@handle`). If a commit author's email doesn't map to a GitHub login, look up the merged PR via `gh pr list --search "<commit-sha>"` and use `author.login` from there. Never invent a handle.
+
+If the result is "maintainer-only", omit the Contributors block. If there is at least one external contributor or external bug reporter, you MUST include the Contributors block from Step 1.
 
 ### Step 1: Keep a Changelog format
 
@@ -77,6 +100,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated dependencies (fixes CVE-2024-12345)
 - Implemented CSRF protection
 - Added helmet.js security headers
+
+### Contributors
+
+Thanks to the external contributors who shipped in this release:
+
+- [@octocat](https://github.com/octocat) — webhook support for order events ([#142](https://github.com/username/repo/pull/142))
+- [@hubot](https://github.com/hubot) — reported the password-reset email bug ([#138](https://github.com/username/repo/issues/138))
 
 ## [1.1.2] - 2025-01-08
 
@@ -290,11 +320,13 @@ docs/migration/
 1. **Reverse chronological**: latest version at the top
 2. **Include dates**: ISO 8601 format (YYYY-MM-DD)
 3. **Categorize entries**: Added, Changed, Fixed, etc.
+4. **Identify and credit external contributors**: every release entry MUST be preceded by the Step 0 contributor check (`git log` + `gh pr list` + issue-reporter lookup for closed issues). When any non-maintainer contributed code or reported a fixed bug, a `### Contributors` block with `[@handle](https://github.com/handle)` GitHub-tag links and the relevant PR/issue numbers MUST be added. Resolve handles from real GitHub data — never invent them.
 
 ### Prohibited items (MUST NOT)
 
 1. **No copying Git logs**: write from the user's perspective
 2. **Vague wording**: "Bug fixes", "Performance improvements" (be specific)
+3. **No silent contributor omission**: do not ship a release entry without running the Step 0 check, even if the user didn't ask for credits explicitly. If the check returns maintainer-only, that is fine — but it must have been run.
 
 ## Best practices
 
