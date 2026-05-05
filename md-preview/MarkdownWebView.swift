@@ -98,6 +98,25 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         highlightMatches(for: query, backwards: backwards)
     }
 
+    func printDocument(from window: NSWindow?) {
+        neutralizeWebKitScrollEdgeInsets()
+
+        let printInfo = NSPrintInfo.shared.copy() as? NSPrintInfo ?? NSPrintInfo()
+        printInfo.horizontalPagination = .fit
+        printInfo.verticalPagination = .automatic
+        printInfo.isHorizontallyCentered = true
+        printInfo.isVerticallyCentered = false
+
+        let operation = webView.printOperation(with: printInfo)
+        operation.jobTitle = window?.title ?? "Markdown Preview"
+
+        if let window {
+            operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        } else {
+            operation.run()
+        }
+    }
+
     func headingOffset(index: Int, completion: @escaping (CGFloat?) -> Void) {
         let script = """
         (() => {

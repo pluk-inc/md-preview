@@ -55,6 +55,10 @@ final class MainSplitViewController: NSSplitViewController {
         contentViewController?.find(query, backwards: backwards)
     }
 
+    @IBAction func print(_ sender: Any?) {
+        contentViewController?.print(sender)
+    }
+
     var isInspectorVisible: Bool {
         !(splitViewItems.last?.isCollapsed ?? true)
     }
