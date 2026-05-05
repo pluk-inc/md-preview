@@ -76,6 +76,11 @@ final class ContentViewController: NSViewController {
         webView.find(query, backwards: backwards)
     }
 
+    func printDocument() {
+        guard let window = view.window else { return }
+        webView.printDocument(from: window)
+    }
+
     func scrollToHeading(index: Int) {
         webView.headingOffset(index: index) { [weak self] offset in
             guard let self, let offset else { return }

@@ -1130,6 +1130,13 @@ enum MarkdownHTML {
     li > ul, li > ol { margin-top: 0.4em; }
     li > p:first-child { margin-top: 0; }
 
+    li.task-list-item { list-style: none; }
+    li.task-list-item > p:first-of-type { display: inline; margin-top: 0; }
+    .task-list-item-checkbox {
+        margin: 0 0.4em 0.18em -1.4em;
+        vertical-align: middle;
+    }
+
     table {
         margin: 1.6em 0 0;
         border-collapse: collapse;

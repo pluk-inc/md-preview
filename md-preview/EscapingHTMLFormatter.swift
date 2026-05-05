@@ -73,13 +73,15 @@ struct EscapingHTMLFormatter: MarkupWalker {
     }
 
     mutating func visitListItem(_ listItem: ListItem) {
-        result += "<li>"
         if let checkbox = listItem.checkbox {
-            result += "<input type=\"checkbox\" disabled=\"\""
+            result += "<li class=\"task-list-item\">"
+            result += "<input type=\"checkbox\" class=\"task-list-item-checkbox\" disabled=\"\""
             if checkbox == .checked {
                 result += " checked=\"\""
             }
             result += " /> "
+        } else {
+            result += "<li>"
         }
         descendInto(listItem)
         result += "</li>\n"

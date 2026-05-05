@@ -100,6 +100,16 @@ Pull requests are welcome. For larger changes, please open an issue first to dis
 3. Keep PRs focused; one logical change per PR.
 4. Match the existing Swift style (no formatter is enforced; mirror nearby code).
 
+<h2 align="center" style="color: #8a8a8a;">Special Sponsor</h2>
+
+<br />
+
+<p align="center">
+  <a href="https://pluk.sh">
+    <img src="docs/sponsors/pluk-logo.svg" width="220" alt="Pluk" />
+  </a>
+</p>
+
 ## Acknowledgments
 
 - [swift-markdown](https://github.com/swiftlang/swift-markdown) — Markdown parser (Apple, cmark-gfm-backed)

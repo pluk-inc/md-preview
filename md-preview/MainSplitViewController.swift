@@ -36,13 +36,6 @@ final class MainSplitViewController: NSSplitViewController {
         addSplitViewItem(inspector)
 
         splitView.autosaveName = "MainSplitView"
-
-        display(
-            markdown: "# md-preview\n\nWKWebView pipeline is live. Replace this call site once real file loading is wired up.",
-            fileName: "Sample.md",
-            url: nil,
-            assetBaseURL: nil
-        )
     }
 
     func display(markdown: String, fileName: String, url: URL?, assetBaseURL: URL?) {
@@ -53,6 +46,13 @@ final class MainSplitViewController: NSSplitViewController {
 
     func find(_ query: String, backwards: Bool = false) {
         contentViewController?.find(query, backwards: backwards)
+    }
+
+    // Custom selector (instead of `print:`) so AppKit's inherited
+    // NSView/NSWindow `print:` doesn't intercept higher in the responder chain
+    // and print the sidebar / whole window contents.
+    @IBAction func printMarkdown(_ sender: Any?) {
+        contentViewController?.printDocument()
     }
 
     var isInspectorVisible: Bool {
