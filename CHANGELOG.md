@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.13] – 2026-05-05
+
+Native printing, plus two rendering fixes.
+
+### Added
+
+- **Print the rendered Markdown.** File → Print (⌘P) now prints the previewed document through WKWebView with horizontal fit pagination, instead of falling through to AppKit's generic `print:` and printing the sidebar and window chrome. The app gained the `com.apple.security.print` entitlement so this works in the sandbox.
+
+### Fixed
+
+- **GFM task lists render inline without a duplicate bullet.** Task list items were drawing both a list marker and a checkbox with the label wrapping to a new line below. Task `<li>`s and their checkboxes are now tagged with GitHub's `task-list-item` / `task-list-item-checkbox` class names, so CSS suppresses the marker and the first paragraph stays inline next to the checkbox ([#63](https://github.com/pluk-inc/md-preview.app/issues/63)).
+- **No placeholder content on launch.** Removed the leftover "WKWebView pipeline is live" sample that the split view rendered at startup, so the app opens with an empty preview area until you load a document.
+
 ## [0.0.12] – 2026-05-05
 
 Code highlighting, richer Markdown heading and footnote rendering, and README sponsor updates.
