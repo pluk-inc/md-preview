@@ -36,13 +36,6 @@ final class MainSplitViewController: NSSplitViewController {
         addSplitViewItem(inspector)
 
         splitView.autosaveName = "MainSplitView"
-
-        display(
-            markdown: "# md-preview\n\nWKWebView pipeline is live. Replace this call site once real file loading is wired up.",
-            fileName: "Sample.md",
-            url: nil,
-            assetBaseURL: nil
-        )
     }
 
     func display(markdown: String, fileName: String, url: URL?, assetBaseURL: URL?) {
