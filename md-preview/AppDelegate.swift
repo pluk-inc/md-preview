@@ -12,12 +12,13 @@ import UniformTypeIdentifiers
 extension NSToolbarItem.Identifier {
     static let openWith = NSToolbarItem.Identifier("OpenWith")
     static let inspector = NSToolbarItem.Identifier("Inspector")
+    static let copySource = NSToolbarItem.Identifier("CopySource")
     static let share = NSToolbarItem.Identifier("Share")
     static let search = NSToolbarItem.Identifier("Search")
 }
 
 @main
-class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharingServicePickerToolbarItemDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSToolbarItemValidation, NSSharingServicePickerToolbarItemDelegate {
 
     @IBOutlet var window: NSWindow!
 
@@ -155,6 +156,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
             .openWith,
             .flexibleSpace,
             .inspector,
+            .copySource,
             .share,
             .search
         ]
@@ -168,6 +170,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
             .space,
             .openWith,
             .inspector,
+            .copySource,
             .share,
             .search
         ]
@@ -179,9 +182,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         switch itemIdentifier {
         case .openWith: return makeOpenWithItem()
         case .inspector: return makeInspectorItem()
+        case .copySource: return makeCopySourceItem()
         case .share: return makeShareItem()
         case .search: return makeSearchItem()
         default: return nil
+        }
+    }
+
+    func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
+        switch item.itemIdentifier {
+        case .copySource:
+            return currentMarkdown != nil
+        default:
+            return true
         }
     }
 
@@ -227,9 +240,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         return item
     }
 
+    private func makeCopySourceItem() -> NSToolbarItem {
+        let item = NSToolbarItem(itemIdentifier: .copySource)
+        item.label = "Copy"
+        item.paletteLabel = "Copy"
+        item.toolTip = "Copy Markdown source"
+        item.image = copySourceImage()
+        item.target = self
+        item.action = #selector(copySourceAction(_:))
+        return item
+    }
+
     private func inspectorImage() -> NSImage {
         let image = NSImage(systemSymbolName: "info",
                             accessibilityDescription: "Inspector") ?? NSImage()
+        image.isTemplate = true
+        return image
+    }
+
+    private func copySourceImage() -> NSImage {
+        let image = NSImage(systemSymbolName: "doc.on.doc",
+                            accessibilityDescription: "Copy") ?? NSImage()
         image.isTemplate = true
         return image
     }
@@ -254,6 +285,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     func items(for pickerToolbarItem: NSSharingServicePickerToolbarItem) -> [Any] {
         guard let currentMarkdown else { return [] }
         return [currentMarkdown]
+    }
+
+    @objc private func copySourceAction(_ sender: Any?) {
+        guard let currentMarkdown else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(currentMarkdown, forType: .string)
     }
 
     private func makeSearchItem() -> NSToolbarItem {

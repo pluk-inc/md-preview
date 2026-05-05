@@ -54,6 +54,7 @@ enum MarkdownHTML {
         \(mathResult.containsMath || footnoteDefinitions.containsMath ? katexHead : "")
         \(mermaidResult.containsMermaid || footnoteDefinitions.containsMermaid ? mermaidScript : "")
         \(shikiResult.containsHighlightedCode || footnoteDefinitions.containsHighlightedCode ? shikiScript : "")
+        \(codeCopyScript)
         </head>
         <body>
         <article class="markdown-body">
@@ -786,6 +787,85 @@ enum MarkdownHTML {
         """
     }()
 
+    private static let codeCopyScript = """
+    <script>
+    (function() {
+        function codeText(block) {
+            const code = block.querySelector('pre code');
+            return code ? code.textContent || '' : '';
+        }
+
+        function fallbackCopy(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+            } finally {
+                textarea.remove();
+            }
+        }
+
+        async function copyText(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    return;
+                } catch (_) {}
+            }
+            fallbackCopy(text);
+        }
+
+        function setCopied(button) {
+            button.classList.add('copied');
+            button.setAttribute('aria-label', 'Copied');
+            button.title = 'Copied';
+            window.setTimeout(() => {
+                button.classList.remove('copied');
+                button.setAttribute('aria-label', 'Copy code');
+                button.title = 'Copy code';
+            }, 1200);
+        }
+
+        function installCodeCopyButtons() {
+            document.querySelectorAll('article.markdown-body pre').forEach((pre) => {
+                if (pre.closest('.mermaid')) return;
+                let block = pre.closest('.md-code-block');
+                if (!block) {
+                    block = document.createElement('div');
+                    block.className = 'md-code-block';
+                    pre.parentNode.insertBefore(block, pre);
+                    block.appendChild(pre);
+                }
+                if (block.querySelector(':scope > .md-code-copy')) return;
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'md-code-copy';
+                button.setAttribute('aria-label', 'Copy code');
+                button.title = 'Copy code';
+                button.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 1.75A1.75 1.75 0 0 1 6.75 0h5.5A1.75 1.75 0 0 1 14 1.75v7.5A1.75 1.75 0 0 1 12.25 11h-5.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"></path><path d="M2 4.75C2 3.784 2.784 3 3.75 3H4v1.5h-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25V12H11v.25A1.75 1.75 0 0 1 9.25 14h-5.5A1.75 1.75 0 0 1 2 12.25Z"></path></svg>';
+                button.addEventListener('click', async () => {
+                    await copyText(codeText(block));
+                    setCopied(button);
+                });
+                block.appendChild(button);
+            });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', installCodeCopyButtons, { once: true });
+        } else {
+            installCodeCopyButtons();
+        }
+        window.addEventListener('md-preview-shiki-rendered', installCodeCopyButtons);
+    })();
+    </script>
+    """
+
     private final class MarkdownHTMLBundleToken {}
 
 
@@ -930,6 +1010,49 @@ enum MarkdownHTML {
         padding: 0;
         background: transparent;
         font-size: 0.88em;
+    }
+    .md-code-block {
+        position: relative;
+        margin: 0.8em 0 0;
+    }
+    .md-code-block pre {
+        margin: 0;
+        padding-right: 46px;
+    }
+    .md-code-copy {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 7px;
+        color: var(--secondary);
+        background: color-mix(in srgb, var(--code-bg) 78%, canvas);
+        opacity: 0;
+        transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+        cursor: pointer;
+        -webkit-appearance: none;
+    }
+    .md-code-block:hover .md-code-copy,
+    .md-code-copy:focus-visible,
+    .md-code-copy.copied {
+        opacity: 1;
+    }
+    .md-code-copy:hover {
+        color: var(--text);
+        background: color-mix(in srgb, var(--code-bg) 58%, canvas);
+    }
+    .md-code-copy.copied {
+        color: var(--link);
+    }
+    .md-code-copy svg {
+        width: 15px;
+        height: 15px;
+        fill: currentColor;
     }
     .shiki,
     .shiki code {
