@@ -26,12 +26,15 @@ enum MarkdownHTML {
                        allowsScroll: Bool = false,
                        assetBaseHref: String? = nil) -> RenderedHTML {
         let body = MarkdownFrontmatter.split(markdown).body
-        let math = extractMath(from: body)
+        let footnotes = extractFootnotes(from: body)
+        let math = extractMath(from: footnotes.markdown)
         let formatted = EscapingHTMLFormatter.format(math.processedMarkdown)
         let mermaidResult = renderMermaidBlocks(in: formatted)
         let shikiResult = detectHighlightableCode(in: mermaidResult.html)
         let mathResult = renderMathBlocks(in: shikiResult.html, with: math)
-        let bodyHTML = injectHeadingIDs(in: mathResult.html)
+        let footnoteReferenceHTML = renderFootnoteReferences(in: mathResult.html, with: footnotes)
+        let footnoteDefinitions = renderFootnoteDefinitions(footnotes)
+        let bodyHTML = injectHeadingIDs(in: footnoteReferenceHTML + footnoteDefinitions.html)
         let scrollOverride = allowsScroll ? """
         <style>
         html, body { overflow: auto !important; }
@@ -48,9 +51,9 @@ enum MarkdownHTML {
         \(baseTag)
         <style>\(stylesheet)</style>
         \(scrollOverride)
-        \(mathResult.containsMath ? katexHead : "")
-        \(mermaidResult.containsMermaid ? mermaidScript : "")
-        \(shikiResult.containsHighlightedCode ? shikiScript : "")
+        \(mathResult.containsMath || footnoteDefinitions.containsMath ? katexHead : "")
+        \(mermaidResult.containsMermaid || footnoteDefinitions.containsMermaid ? mermaidScript : "")
+        \(shikiResult.containsHighlightedCode || footnoteDefinitions.containsHighlightedCode ? shikiScript : "")
         </head>
         <body>
         <article class="markdown-body">
@@ -61,9 +64,9 @@ enum MarkdownHTML {
         """
         return RenderedHTML(
             html: html,
-            containsMath: mathResult.containsMath,
-            containsMermaid: mermaidResult.containsMermaid,
-            containsHighlightedCode: shikiResult.containsHighlightedCode
+            containsMath: mathResult.containsMath || footnoteDefinitions.containsMath,
+            containsMermaid: mermaidResult.containsMermaid || footnoteDefinitions.containsMermaid,
+            containsHighlightedCode: shikiResult.containsHighlightedCode || footnoteDefinitions.containsHighlightedCode
         )
     }
 
@@ -97,6 +100,297 @@ enum MarkdownHTML {
         result += nsHtml.substring(from: cursor)
         return result
     }
+
+    // MARK: - Footnotes
+
+    private struct FootnoteExtraction {
+        let markdown: String
+        let definitions: [FootnoteDefinition]
+        let references: [FootnoteReference]
+    }
+
+    private struct FootnoteDefinition {
+        let key: String
+        let label: String
+        let content: String
+        let number: Int
+    }
+
+    private struct FootnoteReference {
+        let token: String
+        let number: Int
+        let ordinal: Int
+    }
+
+    private struct FootnoteDefinitionRenderResult {
+        let html: String
+        let containsMath: Bool
+        let containsMermaid: Bool
+        let containsHighlightedCode: Bool
+    }
+
+    private static let footnoteDefinitionRegex: NSRegularExpression = {
+        // swiftlint:disable:next force_try
+        try! NSRegularExpression(pattern: #"^[ \t]{0,3}\[\^([^\]\n]+)\]:[ \t]*(.*)$"#)
+    }()
+
+    private static let footnoteReferenceRegex: NSRegularExpression = {
+        // swiftlint:disable:next force_try
+        try! NSRegularExpression(pattern: #"\[\^([^\]\n]+)\]"#)
+    }()
+
+    private static func extractFootnotes(from markdown: String) -> FootnoteExtraction {
+        let split = splitFootnoteDefinitions(from: markdown)
+        var protected: [String] = []
+
+        let afterFences = replaceFullMatches(of: codeFenceRegex, in: split.markdown) { full in
+            protected.append(full)
+            return "MdPreviewFootnoteProtect\(protected.count - 1)Token"
+        }
+        let afterInlineCode = replaceFullMatches(of: inlineCodeRegex, in: afterFences) { full in
+            protected.append(full)
+            return "MdPreviewFootnoteProtect\(protected.count - 1)Token"
+        }
+
+        var orderedDefinitions: [FootnoteDefinition] = []
+        var referenceOrdinalsByNumber: [Int: Int] = [:]
+        var references: [FootnoteReference] = []
+
+        let replacedReferences = replaceFootnoteReferenceMatches(in: afterInlineCode) { label, full in
+            let key = normalizeFootnoteKey(label)
+            guard let stored = split.definitions[key] else { return full }
+
+            let definition: FootnoteDefinition
+            if let existing = orderedDefinitions.first(where: { $0.key == key }) {
+                definition = existing
+            } else {
+                definition = FootnoteDefinition(
+                    key: key,
+                    label: stored.label,
+                    content: stored.content,
+                    number: orderedDefinitions.count + 1
+                )
+                orderedDefinitions.append(definition)
+            }
+
+            let ordinal = (referenceOrdinalsByNumber[definition.number] ?? 0) + 1
+            referenceOrdinalsByNumber[definition.number] = ordinal
+            let token = "MdPreviewFootnoteRef\(references.count)Token"
+            references.append(FootnoteReference(token: token, number: definition.number, ordinal: ordinal))
+            return token
+        }
+
+        var restored = replacedReferences
+        for (i, original) in protected.enumerated() {
+            restored = restored.replacingOccurrences(
+                of: "MdPreviewFootnoteProtect\(i)Token",
+                with: original
+            )
+        }
+
+        return FootnoteExtraction(
+            markdown: restored,
+            definitions: orderedDefinitions,
+            references: references
+        )
+    }
+
+    private static func splitFootnoteDefinitions(from markdown: String) -> (
+        markdown: String,
+        definitions: [String: (label: String, content: String)]
+    ) {
+        let lines = markdown.components(separatedBy: "\n")
+        var output: [String] = []
+        var definitions: [String: (label: String, content: String)] = [:]
+        var index = 0
+
+        while index < lines.count {
+            let line = lines[index]
+            if let match = firstMatch(of: footnoteDefinitionRegex, in: line) {
+                let nsLine = line as NSString
+                let label = nsLine.substring(with: match.range(at: 1))
+                var contentLines = [nsLine.substring(with: match.range(at: 2))]
+                index += 1
+
+                while index < lines.count {
+                    let continuation = lines[index]
+                    if continuation.trimmingCharacters(in: .whitespaces).isEmpty {
+                        if index + 1 < lines.count, isIndentedFootnoteContinuation(lines[index + 1]) {
+                            contentLines.append("")
+                            index += 1
+                            continue
+                        }
+                        break
+                    }
+                    guard isIndentedFootnoteContinuation(continuation) else { break }
+                    contentLines.append(stripFootnoteContinuationIndent(from: continuation))
+                    index += 1
+                }
+
+                definitions[normalizeFootnoteKey(label)] = (
+                    label: label,
+                    content: contentLines.joined(separator: "\n")
+                )
+            } else {
+                output.append(line)
+                index += 1
+            }
+        }
+
+        return (output.joined(separator: "\n"), definitions)
+    }
+
+    private static func firstMatch(of regex: NSRegularExpression,
+                                   in source: String) -> NSTextCheckingResult? {
+        let nsSource = source as NSString
+        return regex.firstMatch(
+            in: source,
+            range: NSRange(location: 0, length: nsSource.length)
+        )
+    }
+
+    private static func isIndentedFootnoteContinuation(_ line: String) -> Bool {
+        if line.hasPrefix("\t") { return true }
+        return line.count >= 4 && line.prefix(4).allSatisfy { $0 == " " }
+    }
+
+    private static func stripFootnoteContinuationIndent(from line: String) -> String {
+        if line.hasPrefix("\t") {
+            return String(line.dropFirst())
+        }
+        if line.count >= 4 && line.prefix(4).allSatisfy({ $0 == " " }) {
+            return String(line.dropFirst(4))
+        }
+        return line
+    }
+
+    private static func normalizeFootnoteKey(_ label: String) -> String {
+        label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func replaceFootnoteReferenceMatches(in source: String,
+                                                        transform: (String, String) -> String) -> String {
+        let nsSource = source as NSString
+        let matches = footnoteReferenceRegex.matches(
+            in: source,
+            range: NSRange(location: 0, length: nsSource.length)
+        )
+        guard !matches.isEmpty else { return source }
+
+        var result = ""
+        result.reserveCapacity(source.count)
+        var cursor = 0
+        for match in matches {
+            result += nsSource.substring(with: NSRange(
+                location: cursor,
+                length: match.range.location - cursor
+            ))
+            let full = nsSource.substring(with: match.range)
+            let label = nsSource.substring(with: match.range(at: 1))
+            result += transform(label, full)
+            cursor = match.range.location + match.range.length
+        }
+        result += nsSource.substring(from: cursor)
+        return result
+    }
+
+    private static func renderFootnoteReferences(in html: String,
+                                                 with footnotes: FootnoteExtraction) -> String {
+        guard !footnotes.references.isEmpty else { return html }
+        var rendered = html
+        for reference in footnotes.references {
+            let refID = footnoteReferenceID(number: reference.number, ordinal: reference.ordinal)
+            let footnoteID = footnoteDefinitionID(number: reference.number)
+            let replacement = """
+            <sup class="footnote-ref"><a id="\(refID)" href="#\(footnoteID)" aria-label="Footnote \(reference.number)">\(reference.number)</a></sup>
+            """
+            rendered = rendered.replacingOccurrences(of: reference.token, with: replacement)
+        }
+        return rendered
+    }
+
+    private static func renderFootnoteDefinitions(_ footnotes: FootnoteExtraction) -> FootnoteDefinitionRenderResult {
+        guard !footnotes.definitions.isEmpty else {
+            return FootnoteDefinitionRenderResult(
+                html: "",
+                containsMath: false,
+                containsMermaid: false,
+                containsHighlightedCode: false
+            )
+        }
+
+        var containsMath = false
+        var containsMermaid = false
+        var containsHighlightedCode = false
+        let referencesByNumber = Dictionary(grouping: footnotes.references, by: { $0.number })
+        let items = footnotes.definitions.map { definition -> String in
+            let renderedContent = renderFootnoteDefinitionContent(definition.content)
+            containsMath = containsMath || renderedContent.containsMath
+            containsMermaid = containsMermaid || renderedContent.containsMermaid
+            containsHighlightedCode = containsHighlightedCode || renderedContent.containsHighlightedCode
+            let backrefs = (referencesByNumber[definition.number] ?? []).map { reference in
+                """
+                <a href="#\(footnoteReferenceID(number: reference.number, ordinal: reference.ordinal))" class="footnote-backref" aria-label="Back to reference \(reference.number)">&#8617;</a>
+                """
+            }.joined(separator: " ")
+            let contentHTML = appendFootnoteBackrefs(backrefs, to: renderedContent.html)
+
+            return """
+            <li id="\(footnoteDefinitionID(number: definition.number))">
+            \(contentHTML)
+            </li>
+            """
+        }.joined(separator: "\n")
+
+        return FootnoteDefinitionRenderResult(
+            html: """
+
+            <section class="footnotes" role="doc-endnotes">
+            <hr />
+            <ol>
+            \(items)
+            </ol>
+            </section>
+            """,
+            containsMath: containsMath,
+            containsMermaid: containsMermaid,
+            containsHighlightedCode: containsHighlightedCode
+        )
+    }
+
+    private static func appendFootnoteBackrefs(_ backrefs: String, to html: String) -> String {
+        guard !backrefs.isEmpty else { return html }
+        let inlineBackrefs = "<span class=\"footnote-backrefs\">\(backrefs)</span>"
+        if let range = html.range(of: "</p>", options: .backwards) {
+            var updated = html
+            updated.replaceSubrange(range, with: " \(inlineBackrefs)</p>")
+            return updated
+        }
+        return html + inlineBackrefs
+    }
+
+    private static func renderFootnoteDefinitionContent(_ markdown: String) -> FootnoteDefinitionRenderResult {
+        let math = extractMath(from: markdown.trimmingCharacters(in: .whitespacesAndNewlines))
+        let formatted = EscapingHTMLFormatter.format(math.processedMarkdown)
+        let mermaidResult = renderMermaidBlocks(in: formatted)
+        let shikiResult = detectHighlightableCode(in: mermaidResult.html)
+        let mathResult = renderMathBlocks(in: shikiResult.html, with: math)
+        return FootnoteDefinitionRenderResult(
+            html: mathResult.html,
+            containsMath: mathResult.containsMath,
+            containsMermaid: mermaidResult.containsMermaid,
+            containsHighlightedCode: shikiResult.containsHighlightedCode
+        )
+    }
+
+    private static func footnoteDefinitionID(number: Int) -> String {
+        "fn-\(number)"
+    }
+
+    private static func footnoteReferenceID(number: Int, ordinal: Int) -> String {
+        ordinal == 1 ? "fnref-\(number)" : "fnref-\(number)-\(ordinal)"
+    }
+
     // MARK: - Math (KaTeX)
 
     private struct MathExtraction {
@@ -571,6 +865,51 @@ enum MarkdownHTML {
 
     a { color: var(--link); text-decoration: none; }
     a:hover { text-decoration: underline; }
+    .footnote-ref {
+        font-size: 0.75em;
+        line-height: 0;
+        vertical-align: super;
+    }
+    .footnote-ref a {
+        padding: 0 0.12em;
+    }
+    .footnotes {
+        margin-top: 2.35em;
+        color: var(--text);
+        font-size: 0.9em;
+        line-height: 1.45;
+    }
+    .footnotes hr {
+        margin: 0 0 1em;
+    }
+    .footnotes ol {
+        margin-top: 0;
+        padding-left: 1.45em;
+    }
+    .footnotes li {
+        margin-top: 0.72em;
+        padding-left: 0.12em;
+    }
+    .footnotes li:first-child {
+        margin-top: 0;
+    }
+    .footnotes li > p:first-child {
+        margin-top: 0;
+    }
+    .footnote-backrefs {
+        display: inline-flex;
+        gap: 0.28em;
+        margin-left: 0.28em;
+        white-space: nowrap;
+    }
+    .footnote-backref {
+        font-size: 0.78em;
+        opacity: 0.65;
+        vertical-align: baseline;
+    }
+    .footnote-backref:hover {
+        opacity: 1;
+    }
 
     code {
         font-family: ui-monospace, "SF Mono", Menlo, monospace;

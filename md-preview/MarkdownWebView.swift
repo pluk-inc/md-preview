@@ -10,6 +10,7 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
 
     let webView: WKWebView
     var heightDidChange: ((CGFloat) -> Void)?
+    var fragmentLinkActivated: ((String) -> Void)?
     private let assetScheme = MarkdownAssetScheme()
     private var currentAssetBase: URL?
     private var scheduledHeightUpdates: [DispatchWorkItem] = []
@@ -101,6 +102,24 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         let script = """
         (() => {
             const el = document.getElementById('md-heading-\(index)');
+            if (!el) return null;
+            const rect = el.getBoundingClientRect();
+            return rect.top + (window.scrollY || document.documentElement.scrollTop || 0);
+        })();
+        """
+        webView.evaluateJavaScript(script) { result, _ in
+            if let number = result as? NSNumber {
+                completion(CGFloat(truncating: number))
+            } else {
+                completion(nil)
+            }
+        }
+    }
+
+    func elementOffset(id: String, completion: @escaping (CGFloat?) -> Void) {
+        let script = """
+        (() => {
+            const el = document.getElementById(\(javaScriptStringLiteral(id)));
             if (!el) return null;
             const rect = el.getBoundingClientRect();
             return rect.top + (window.scrollY || document.documentElement.scrollTop || 0);
@@ -276,7 +295,9 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
                  decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
         if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url {
-            if url.scheme == MarkdownAssetScheme.scheme,
+            if let fragment = sameDocumentFragmentID(from: url) {
+                fragmentLinkActivated?(fragment)
+            } else if url.scheme == MarkdownAssetScheme.scheme,
                let base = currentAssetBase,
                let resolved = MarkdownAssetScheme.resolve(url, against: base) {
                 NSWorkspace.shared.open(resolved)
@@ -292,6 +313,25 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         neutralizeWebKitScrollEdgeInsets()
         recalculateDocumentHeight()
+    }
+
+    private func sameDocumentFragmentID(from url: URL) -> String? {
+        guard let fragment = url.fragment?.removingPercentEncoding,
+              !fragment.isEmpty,
+              url.query == nil else { return nil }
+
+        if url.scheme == nil {
+            return fragment
+        }
+        if url.scheme == "about", url.absoluteString.hasPrefix("about:blank#") {
+            return fragment
+        }
+        if url.scheme == MarkdownAssetScheme.scheme,
+           (url.host == nil || url.host == ""),
+           (url.path.isEmpty || url.path == "/") {
+            return fragment
+        }
+        return nil
     }
 }
 
