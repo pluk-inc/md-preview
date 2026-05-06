@@ -62,12 +62,12 @@ UTI: `net.daringfireball.markdown`
 ## Building from source
 
 ```sh
-git clone git@github.com:pluk-inc/md-preview.app.git
-cd md-preview.app
-open md-preview.xcodeproj
+git clone git@github.com:pluk-inc/markdown-preview.git
+cd markdown-preview
+open markdown-preview.xcodeproj
 ```
 
-Build and run the `md-preview` scheme. Swift Package Manager will resolve [Sparkle](https://github.com/sparkle-project/Sparkle) and [swift-markdown](https://github.com/swiftlang/swift-markdown) on first build.
+Build and run the `markdown-preview` scheme. Swift Package Manager will resolve [Sparkle](https://github.com/sparkle-project/Sparkle) and [swift-markdown](https://github.com/swiftlang/swift-markdown) on first build.
 
 ## Project layout
 
