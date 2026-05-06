@@ -8,5 +8,12 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- Quick Look grants the extension the previewed file, but not sibling
+	     images. The read-only exception lets InlineLocalAssets embed relative
+	     images as cid: QLPreviewReplyAttachment entries. -->
+	<key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
+	<array>
+		<string>/</string>
+	</array>
 </dict>
 </plist>
