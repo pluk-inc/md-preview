@@ -905,6 +905,38 @@ enum MarkdownHTML {
     mark.md-search-highlight-current {
         background: #ffbf00;
     }
+    .md-search-burst {
+        position: absolute;
+        pointer-events: none;
+        background: rgba(255, 191, 0, 0.5);
+        border-radius: 6px;
+        box-shadow: 0 0 4px rgba(0, 0, 0, 0.12),
+                    0 2px 6px rgba(0, 0, 0, 0.15);
+        z-index: 9999;
+        transform-origin: center center;
+        will-change: transform;
+        animation: md-search-burst 250ms forwards;
+    }
+    /* Per-segment timing: accelerate into the peak (cubic-bezier ease-in),
+       then decelerate out of it (strong ease-out). High matching velocity
+       at the peak means the motion flows through without pausing — the
+       "stuck" feel of multi-stop ease-out keyframes. */
+    @keyframes md-search-burst {
+        0% {
+            transform: scale(1.0);
+            animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+        }
+        50% {
+            transform: scale(1.32);
+            animation-timing-function: cubic-bezier(0, 0.55, 0.45, 1);
+        }
+        100% {
+            transform: scale(1.0);
+        }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .md-search-burst { animation-duration: 1ms; }
+    }
     html, body {
         margin: 0;
         padding: 0;

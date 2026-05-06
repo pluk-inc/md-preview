@@ -17,7 +17,7 @@ extension NSToolbarItem.Identifier {
 }
 
 @main
-class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharingServicePickerToolbarItemDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharingServicePickerToolbarItemDelegate, NSSearchFieldDelegate {
 
     @IBOutlet var window: NSWindow!
 
@@ -39,6 +39,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     private weak var searchField: NSSearchField?
     private var accessBanner: MissingFolderAccessBanner?
     private var accessBannerAccessory: NSTitlebarAccessoryViewController?
+    private var findBar: FindBar?
+    private var findBarAccessory: NSTitlebarAccessoryViewController?
+    private var searchMode: SearchMode = .contains
+    private var pendingFindWork: DispatchWorkItem?
+    private static let findDebounceDelay: TimeInterval = 0.10
 
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let url = urls.first else { return }
@@ -60,8 +65,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
-        window.toolbarStyle = .unified
+        window.toolbarStyle = .automatic
 
+        installFindBar()
         installAccessBanner()
 
         hasLaunched = true
@@ -265,13 +271,93 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         item.searchField.sendsSearchStringImmediately = true
         item.searchField.target = self
         item.searchField.action = #selector(searchFieldDidChange(_:))
+        item.searchField.delegate = self
         searchField = item.searchField
         return item
     }
 
     @objc private func searchFieldDidChange(_ sender: NSSearchField) {
+        // Coalesce per-keystroke finds — running the full DOM rewrite + JS
+        // round-trip on every char is the dominant stall source on big docs.
+        // Empty queries (e.g. user cleared the field) bypass the debounce so
+        // the highlight teardown happens immediately.
+        let query = sender.stringValue
+        pendingFindWork?.cancel()
+        if query.isEmpty {
+            pendingFindWork = nil
+            runFind(query: query)
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in
+            self?.runFind(query: query)
+        }
+        pendingFindWork = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.findDebounceDelay, execute: work
+        )
+    }
+
+    private func runFind(query: String, backwards: Bool = false) {
+        // Explicit nav (Enter / prev / next / mode change) flushes any pending
+        // debounce so the user navigates the freshest results.
+        pendingFindWork?.cancel()
+        pendingFindWork = nil
         (window.contentViewController as? MainSplitViewController)?
-            .find(sender.stringValue)
+            .find(query, backwards: backwards, mode: searchMode) { [weak self] result in
+                self?.applyFindResult(result, query: query)
+            }
+    }
+
+    func control(_ control: NSControl,
+                 textView: NSTextView,
+                 doCommandBy commandSelector: Selector) -> Bool {
+        guard control === searchField,
+              commandSelector == #selector(NSResponder.insertNewline(_:)) else {
+            return false
+        }
+        let backwards = NSEvent.modifierFlags.contains(.shift)
+        findFromToolbar(backwards: backwards)
+        return true
+    }
+
+    private func applyFindResult(_ result: FindResult, query: String) {
+        if query.isEmpty {
+            setFindBarVisible(false)
+            return
+        }
+        findBar?.update(matchCount: result.total, currentIndex: result.index)
+        setFindBarVisible(true)
+    }
+
+    private func setFindBarVisible(_ visible: Bool) {
+        guard let accessory = findBarAccessory, accessory.isHidden == visible else { return }
+        accessory.isHidden = !visible
+    }
+
+    private func installFindBar() {
+        let bar = FindBar(
+            frame: NSRect(x: 0, y: 0, width: 600, height: FindBar.preferredHeight)
+        )
+        bar.autoresizingMask = [.width]
+        bar.onPrevious = { [weak self] in self?.findFromToolbar(backwards: true) }
+        bar.onNext = { [weak self] in self?.findFromToolbar(backwards: false) }
+        bar.onDone = { [weak self] in self?.dismissFindBar() }
+        bar.onModeChanged = { [weak self] mode in self?.searchModeDidChange(mode) }
+
+        // Default `.automatic` — `.hard` deadlocks initial layout against our
+        // nested non-scrolling WKWebView. Find bar's own bottom rule gives
+        // the dividing line either way.
+        self.findBar = bar
+        self.findBarAccessory = addBottomTitlebarAccessory(bar)
+    }
+
+    private func dismissFindBar() {
+        searchField?.stringValue = ""
+        if let editor = searchField?.currentEditor(),
+           window.firstResponder === editor {
+            window.makeFirstResponder(nil)
+        }
+        runFind(query: "")
     }
 
     @IBAction func performFindPanelAction(_ sender: Any?) {
@@ -302,8 +388,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
             focusToolbarSearch()
             return
         }
-        (window.contentViewController as? MainSplitViewController)?
-            .find(query, backwards: backwards)
+        runFind(query: query, backwards: backwards)
+    }
+
+    private func searchModeDidChange(_ mode: SearchMode) {
+        guard mode != searchMode else { return }
+        searchMode = mode
+        guard findBarAccessory?.isHidden == false,
+              let query = searchField?.stringValue, !query.isEmpty else { return }
+        runFind(query: query)
     }
 
     private func focusToolbarSearch() {
@@ -634,14 +727,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         banner.autoresizingMask = [.width]
         banner.onAllow = { [weak self] in self?.grantAccessForCurrentDocument() }
 
+        self.accessBanner = banner
+        self.accessBannerAccessory = addBottomTitlebarAccessory(banner)
+    }
+
+    private func addBottomTitlebarAccessory(_ view: NSView) -> NSTitlebarAccessoryViewController {
         let accessory = NSTitlebarAccessoryViewController()
         accessory.layoutAttribute = .bottom
-        accessory.view = banner
+        accessory.view = view
         accessory.isHidden = true
         window.addTitlebarAccessoryViewController(accessory)
-
-        self.accessBanner = banner
-        self.accessBannerAccessory = accessory
+        return accessory
     }
 
     private func updateAccessBanner(visible: Bool, folderName: String) {

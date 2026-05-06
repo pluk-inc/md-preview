@@ -44,8 +44,11 @@ final class MainSplitViewController: NSSplitViewController {
         inspectorViewController?.display(metadata: DocumentMetadata.make(url: url, markdown: markdown))
     }
 
-    func find(_ query: String, backwards: Bool = false) {
-        contentViewController?.find(query, backwards: backwards)
+    func find(_ query: String,
+              backwards: Bool = false,
+              mode: SearchMode = .contains,
+              completion: ((FindResult) -> Void)? = nil) {
+        contentViewController?.find(query, backwards: backwards, mode: mode, completion: completion)
     }
 
     // Custom selector (instead of `print:`) so AppKit's inherited

@@ -12,6 +12,7 @@ final class ContentViewController: NSViewController {
     private var webViewHeightConstraint: NSLayoutConstraint!
     private var measuredDocumentHeight: CGFloat = 1
     private var lastLaidOutSize: NSSize = .zero
+    private var pendingFlashWork: DispatchWorkItem?
 
     override func loadView() {
         let scrollView = NSScrollView()
@@ -69,11 +70,48 @@ final class ContentViewController: NSViewController {
         webView.display(markdown: markdown, assetBaseURL: assetBaseURL)
     }
 
-    func find(_ query: String, backwards: Bool = false) {
+    func find(_ query: String,
+              backwards: Bool = false,
+              mode: SearchMode = .contains,
+              completion: ((FindResult) -> Void)? = nil) {
         let pasteboard = NSPasteboard(name: .find)
         pasteboard.declareTypes([.string], owner: nil)
         pasteboard.setString(query, forType: .string)
-        webView.find(query, backwards: backwards)
+        pendingFlashWork?.cancel()
+        webView.find(query, backwards: backwards, mode: mode) { [weak self] result in
+            guard let self else {
+                completion?(result)
+                return
+            }
+            if let top = result.top, let bottom = result.bottom {
+                let needsScroll = !self.isMatchVisible(top: top, bottom: bottom)
+                if needsScroll {
+                    self.scrollDocument(to: top)
+                }
+                // Burst on every navigation. When we just scrolled, delay so
+                // the animation lines up with the match arriving in view.
+                let delay: TimeInterval = needsScroll ? 0.18 : 0
+                let work = DispatchWorkItem { [weak self] in
+                    self?.webView.flashCurrentMatch()
+                }
+                self.pendingFlashWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+            }
+            completion?(result)
+        }
+    }
+
+    private func isMatchVisible(top: CGFloat, bottom: CGFloat) -> Bool {
+        guard let scrollView = view as? NSScrollView else { return true }
+        let clipView = scrollView.contentView
+        // The toolbar (and any titlebar accessory like the find bar) sits over
+        // the top of the clip view via contentInsets — content under that band
+        // is technically inside bounds but visually hidden, so don't count it.
+        let visibleTop = clipView.bounds.origin.y + clipView.contentInsets.top
+        let visibleBottom = clipView.bounds.origin.y
+            + clipView.bounds.height
+            - clipView.contentInsets.bottom
+        return top >= visibleTop && bottom <= visibleBottom
     }
 
     func printDocument() {

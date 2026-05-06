@@ -6,6 +6,20 @@
 import Cocoa
 import WebKit
 
+enum SearchMode {
+    case contains
+    case beginsWith
+}
+
+struct FindResult {
+    let top: CGFloat?
+    let bottom: CGFloat?
+    let index: Int
+    let total: Int
+
+    static let none = FindResult(top: nil, bottom: nil, index: 0, total: 0)
+}
+
 final class MarkdownWebView: NSView, WKNavigationDelegate {
 
     let webView: WKWebView
@@ -94,8 +108,42 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         }
     }
 
-    func find(_ query: String, backwards: Bool = false) {
-        highlightMatches(for: query, backwards: backwards)
+    func find(_ query: String,
+              backwards: Bool = false,
+              mode: SearchMode = .contains,
+              completion: ((FindResult) -> Void)? = nil) {
+        highlightMatches(for: query, backwards: backwards, mode: mode, completion: completion)
+    }
+
+    /// Flashes the macOS-style "burst" animation over the current match —
+    /// a yellow rounded rect that starts large and shrinks down to the match.
+    func flashCurrentMatch() {
+        let script = """
+        (() => {
+            const root = document.querySelector('.markdown-body') || document.body;
+            const marks = root.querySelectorAll('mark.md-search-highlight');
+            const index = window.__mdPreviewSearchIndex;
+            if (!Number.isInteger(index) || index < 0 || index >= marks.length) return;
+            // Drop any in-flight burst so fast typing doesn't pile elements
+            // on the body waiting to fire animationend.
+            document.querySelectorAll('.md-search-burst').forEach(b => b.remove());
+            const target = marks[index];
+            const rect = target.getBoundingClientRect();
+            const scrollX = window.scrollX || document.documentElement.scrollLeft || 0;
+            const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+            const padX = 6;
+            const padY = 4;
+            const burst = document.createElement('span');
+            burst.className = 'md-search-burst';
+            burst.style.left = (rect.left + scrollX - padX) + 'px';
+            burst.style.top = (rect.top + scrollY - padY) + 'px';
+            burst.style.width = (rect.width + padX * 2) + 'px';
+            burst.style.height = (rect.height + padY * 2) + 'px';
+            document.body.appendChild(burst);
+            burst.addEventListener('animationend', () => burst.remove(), { once: true });
+        })();
+        """
+        webView.evaluateJavaScript(script) { _, _ in }
     }
 
     func printDocument(from window: NSWindow) {
@@ -150,35 +198,67 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         }
     }
 
-    private func highlightMatches(for query: String, backwards: Bool) {
+    private func highlightMatches(for query: String,
+                                  backwards: Bool,
+                                  mode: SearchMode,
+                                  completion: ((FindResult) -> Void)?) {
+        let beginsWith = mode == .beginsWith
         let script = """
         (() => {
             const root = document.querySelector('.markdown-body') || document.body;
             const previousQuery = window.__mdPreviewSearchQuery || '';
-            const sameQuery = previousQuery === \(javaScriptStringLiteral(query));
+            const previousBeginsWith = window.__mdPreviewSearchBeginsWith === true;
+            const beginsWith = \(beginsWith ? "true" : "false");
+            const sameQuery = previousQuery === \(javaScriptStringLiteral(query))
+                && previousBeginsWith === beginsWith;
 
-            root.querySelectorAll('mark.md-search-highlight').forEach((mark) => {
-                mark.replaceWith(document.createTextNode(mark.textContent));
-            });
-            root.normalize();
+            // Tear down prior highlights, but only normalize() the parents we
+            // actually touched — root.normalize() is O(N) over the entire
+            // document subtree, which is the dominant stall on big docs.
+            const priorMarks = root.querySelectorAll('mark.md-search-highlight');
+            if (priorMarks.length > 0) {
+                const dirty = new Set();
+                priorMarks.forEach((mark) => {
+                    const parent = mark.parentNode;
+                    if (parent) dirty.add(parent);
+                    mark.replaceWith(document.createTextNode(mark.textContent));
+                });
+                dirty.forEach((parent) => parent.normalize());
+            }
 
             const query = \(javaScriptStringLiteral(query));
             window.__mdPreviewSearchQuery = query;
+            window.__mdPreviewSearchBeginsWith = beginsWith;
             if (!query) {
                 window.__mdPreviewSearchIndex = -1;
-                return 0;
+                return { top: null, bottom: null, index: 0, total: 0 };
             }
+            const isWordChar = (ch) => /[A-Za-z0-9_]/.test(ch);
 
             const needle = query.toLocaleLowerCase();
+            // checkVisibility() forces layout, and KaTeX/Mermaid pages have
+            // many text nodes per parent — cache by parent so we hit it once.
+            const visibilityCache = new WeakMap();
             const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
                 acceptNode(node) {
                     const parent = node.parentElement;
                     if (!parent || parent.closest('script, style, textarea, mark.md-search-highlight')) {
                         return NodeFilter.FILTER_REJECT;
                     }
-                    return node.nodeValue.toLocaleLowerCase().includes(needle)
-                        ? NodeFilter.FILTER_ACCEPT
-                        : NodeFilter.FILTER_REJECT;
+                    // KaTeX/Mermaid stash hidden MathML / source mirrors with
+                    // getBoundingClientRect.top===0 — scrolling to those would
+                    // jump the doc to the top with nothing visible.
+                    let visible = visibilityCache.get(parent);
+                    if (visible === undefined) {
+                        visible = typeof parent.checkVisibility !== 'function'
+                            || parent.checkVisibility();
+                        visibilityCache.set(parent, visible);
+                    }
+                    if (!visible) return NodeFilter.FILTER_REJECT;
+                    // Don't double-lowercase here; the inner loop already does
+                    // one .toLocaleLowerCase() per node and an .indexOf, which
+                    // short-circuits cheaply on non-matching text.
+                    return NodeFilter.FILTER_ACCEPT;
                 }
             });
 
@@ -191,28 +271,42 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
                 const lower = text.toLocaleLowerCase();
                 const fragment = document.createDocumentFragment();
                 let offset = 0;
-                let matchIndex = lower.indexOf(needle);
+                let searchFrom = 0;
+                let matchIndex = lower.indexOf(needle, searchFrom);
+                let nodeHasMatch = false;
 
                 while (matchIndex !== -1) {
-                    fragment.append(document.createTextNode(text.slice(offset, matchIndex)));
+                    const prevChar = matchIndex === 0 ? '' : text[matchIndex - 1];
+                    const isBoundary = matchIndex === 0 || !isWordChar(prevChar);
 
-                    const mark = document.createElement('mark');
-                    mark.className = 'md-search-highlight';
-                    mark.textContent = text.slice(matchIndex, matchIndex + query.length);
-                    fragment.append(mark);
-                    marks.push(mark);
+                    if (!beginsWith || isBoundary) {
+                        fragment.append(document.createTextNode(text.slice(offset, matchIndex)));
 
-                    offset = matchIndex + query.length;
-                    matchIndex = lower.indexOf(needle, offset);
+                        const mark = document.createElement('mark');
+                        mark.className = 'md-search-highlight';
+                        mark.textContent = text.slice(matchIndex, matchIndex + query.length);
+                        fragment.append(mark);
+                        marks.push(mark);
+
+                        offset = matchIndex + query.length;
+                        searchFrom = offset;
+                        nodeHasMatch = true;
+                    } else {
+                        // Skip this match, but keep scanning the same text node.
+                        searchFrom = matchIndex + 1;
+                    }
+                    matchIndex = lower.indexOf(needle, searchFrom);
                 }
 
-                fragment.append(document.createTextNode(text.slice(offset)));
-                node.replaceWith(fragment);
+                if (nodeHasMatch) {
+                    fragment.append(document.createTextNode(text.slice(offset)));
+                    node.replaceWith(fragment);
+                }
             }
 
             if (marks.length === 0) {
                 window.__mdPreviewSearchIndex = -1;
-                return 0;
+                return { top: null, bottom: null, index: 0, total: 0 };
             }
 
             const previousIndex = Number.isInteger(window.__mdPreviewSearchIndex)
@@ -230,13 +324,32 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
             }
 
             window.__mdPreviewSearchIndex = index;
-            marks[index].classList.add('md-search-highlight-current');
-            marks[index].scrollIntoView({ block: 'center', inline: 'nearest' });
+            const current = marks[index];
+            current.classList.add('md-search-highlight-current');
 
-            return marks.length;
+            // The WKWebView host disables internal scrolling and forwards it to
+            // an outer NSScrollView, so scrollIntoView() is a no-op. Hand the
+            // document-space bounds back so AppKit can scroll the clip view —
+            // and only when the match isn't already on screen.
+            const rect = current.getBoundingClientRect();
+            const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+            return {
+                top: rect.top + scrollY,
+                bottom: rect.bottom + scrollY,
+                index: index + 1,
+                total: marks.length
+            };
         })();
         """
-        webView.evaluateJavaScript(script) { _, _ in }
+        webView.evaluateJavaScript(script) { result, _ in
+            guard let completion else { return }
+            let dict = result as? [String: Any]
+            let top = (dict?["top"] as? NSNumber).map { CGFloat(truncating: $0) }
+            let bottom = (dict?["bottom"] as? NSNumber).map { CGFloat(truncating: $0) }
+            let index = (dict?["index"] as? NSNumber)?.intValue ?? 0
+            let total = (dict?["total"] as? NSNumber)?.intValue ?? 0
+            completion(FindResult(top: top, bottom: bottom, index: index, total: total))
+        }
     }
 
     private func javaScriptStringLiteral(_ string: String) -> String {
