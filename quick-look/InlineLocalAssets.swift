@@ -46,13 +46,11 @@ enum InlineLocalAssets {
             let prefix = nsHtml.substring(with: match.range(at: 1))
             let src = nsHtml.substring(with: match.range(at: 2))
             let suffix = nsHtml.substring(with: match.range(at: 3))
-            let original = "\(prefix)\(src)\(suffix)"
 
             let replacement: String
             if let existingCID = srcToCID[src] {
                 replacement = "\(prefix)cid:\(existingCID)\(suffix)"
-            } else if cumulativeBytes < cumulativeByteCap,
-                      let resolved = resolveRelative(src: src, baseDirectory: baseDirectory),
+            } else if let resolved = resolveRelative(src: src, baseDirectory: baseDirectory),
                       let data = try? reader(resolved),
                       data.count <= perImageByteCap,
                       cumulativeBytes + data.count <= cumulativeByteCap {
@@ -65,7 +63,7 @@ enum InlineLocalAssets {
                 cumulativeBytes += data.count
                 replacement = "\(prefix)cid:\(cid)\(suffix)"
             } else {
-                replacement = original
+                replacement = nsHtml.substring(with: match.range)
             }
 
             output += replacement
@@ -76,7 +74,7 @@ enum InlineLocalAssets {
         return Result(html: output, attachments: attachments)
     }
 
-    // Group 1: `<img …src="`  Group 2: src value  Group 3: closing `"`
+    // Matches the double-quoted image tags emitted by MarkdownHTML's renderer.
     private static let imgSrcRegex: NSRegularExpression = {
         // swiftlint:disable:next force_try
         try! NSRegularExpression(
