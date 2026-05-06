@@ -30,6 +30,9 @@ final class ContentViewController: NSViewController {
             self.measuredDocumentHeight = height
             self.applyDocumentHeight()
         }
+        webView.fragmentLinkActivated = { [weak self] fragment in
+            self?.scrollToElement(id: fragment)
+        }
 
         documentView.addSubview(webView)
         scrollView.documentView = documentView
@@ -73,8 +76,20 @@ final class ContentViewController: NSViewController {
         webView.find(query, backwards: backwards)
     }
 
+    func printDocument() {
+        guard let window = view.window else { return }
+        webView.printDocument(from: window)
+    }
+
     func scrollToHeading(index: Int) {
         webView.headingOffset(index: index) { [weak self] offset in
+            guard let self, let offset else { return }
+            self.scrollDocument(to: offset)
+        }
+    }
+
+    private func scrollToElement(id: String) {
+        webView.elementOffset(id: id) { [weak self] offset in
             guard let self, let offset else { return }
             self.scrollDocument(to: offset)
         }

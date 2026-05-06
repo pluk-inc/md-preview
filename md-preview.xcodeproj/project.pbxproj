@@ -18,6 +18,8 @@
 		9AF000000000000000000006 /* katex.min.css in Resources */ = {isa = PBXBuildFile; fileRef = 9AF000000000000000000104 /* katex.min.css */; };
 		9AF000000000000000000007 /* copy-tex.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 9AF000000000000000000105 /* copy-tex.min.js */; };
 		9AF000000000000000000008 /* KaTeX-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 9AF000000000000000000106 /* KaTeX-LICENSE.txt */; };
+		9AF000000000000000000009 /* shiki.bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = 9AF000000000000000000107 /* shiki.bundle.js */; };
+		9AF00000000000000000000A /* Shiki-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 9AF000000000000000000108 /* Shiki-LICENSE.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -55,6 +57,8 @@
 		9AF000000000000000000104 /* katex.min.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; name = katex.min.css; path = "md-preview/Vendor/KaTeX/katex.min.css"; sourceTree = "<group>"; };
 		9AF000000000000000000105 /* copy-tex.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "copy-tex.min.js"; path = "md-preview/Vendor/KaTeX/copy-tex.min.js"; sourceTree = "<group>"; };
 		9AF000000000000000000106 /* KaTeX-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = "KaTeX-LICENSE.txt"; path = "md-preview/Vendor/KaTeX/KaTeX-LICENSE.txt"; sourceTree = "<group>"; };
+		9AF000000000000000000107 /* shiki.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = shiki.bundle.js; path = md-preview/Vendor/Shiki/shiki.bundle.js; sourceTree = "<group>"; };
+		9AF000000000000000000108 /* Shiki-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = "Shiki-LICENSE.txt"; path = "md-preview/Vendor/Shiki/Shiki-LICENSE.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -129,6 +133,8 @@
 				9AF000000000000000000104 /* katex.min.css */,
 				9AF000000000000000000105 /* copy-tex.min.js */,
 				9AF000000000000000000106 /* KaTeX-LICENSE.txt */,
+				9AF000000000000000000107 /* shiki.bundle.js */,
+				9AF000000000000000000108 /* Shiki-LICENSE.txt */,
 				9A0207C32FA0ED7C00092060 /* md-preview */,
 				9A0209312FA10D4C00092060 /* quick-look */,
 				9A02092E2FA10D4C00092060 /* Frameworks */,
@@ -265,6 +271,8 @@
 				9AF000000000000000000006 /* katex.min.css in Resources */,
 				9AF000000000000000000007 /* copy-tex.min.js in Resources */,
 				9AF000000000000000000008 /* KaTeX-LICENSE.txt in Resources */,
+				9AF000000000000000000009 /* shiki.bundle.js in Resources */,
+				9AF00000000000000000000A /* Shiki-LICENSE.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

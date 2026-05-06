@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.0.13] – 2026-05-05
+
+Native printing, plus two rendering fixes.
+
+### Added
+
+- **Print the rendered Markdown.** File → Print (⌘P) now prints the previewed document through WKWebView with horizontal fit pagination, instead of falling through to AppKit's generic `print:` and printing the sidebar and window chrome. The app gained the `com.apple.security.print` entitlement so this works in the sandbox.
+
+### Fixed
+
+- **GFM task lists render inline without a duplicate bullet.** Task list items were drawing both a list marker and a checkbox with the label wrapping to a new line below. Task `<li>`s and their checkboxes are now tagged with GitHub's `task-list-item` / `task-list-item-checkbox` class names, so CSS suppresses the marker and the first paragraph stays inline next to the checkbox ([#63](https://github.com/pluk-inc/md-preview.app/issues/63)).
+- **No placeholder content on launch.** Removed the leftover "WKWebView pipeline is live" sample that the split view rendered at startup, so the app opens with an empty preview area until you load a document.
+
+## [0.0.12] – 2026-05-05
+
+Code highlighting, richer Markdown heading and footnote rendering, and README sponsor updates.
+
+### Added
+
+- **Code blocks now use Shiki syntax highlighting.** Fenced code blocks render with bundled Shiki highlighting in both the app and Quick Look, so previews show language-aware colors without needing network access.
+
+### Fixed
+
+- **Footnotes now render correctly.** Markdown footnote definitions and references are collected, linked, and rendered as a proper footnotes section instead of appearing as plain paragraph content.
+- **Inline markup works inside headings.** Emphasis, links, code spans, and other inline Markdown now render correctly inside heading text while keeping generated heading anchors stable.
+
+## [0.0.11] – 2026-05-04
+
+Homebrew install path and stronger default-handler claims for Markdown files.
+
+### Added
+
+- **Install via Homebrew.** `brew install --cask pluk-inc/tap/markdown-preview` is now the primary install method; the DMG remains as a fallback. The release script auto-bumps the [pluk-inc/homebrew-tap](https://github.com/pluk-inc/homebrew-tap) cask (version + sha256) after each successful `amore release`, so brew users pick up new versions on the same cadence as direct downloads.
+
+### Fixed
+
+- **Markdown Preview now wins as the default `.md` handler on more setups.** `LSHandlerRank` for the standard markdown UTI was promoted from `Default` to `Owner`, so LaunchServices prefers Markdown Preview over apps that only assert a weaker claim. Users who previously had to set "Always Open With" by hand should pick the app up automatically after a fresh install.
+- **Long-tail markdown extensions are now claimed uncontested.** `.mdown`, `.mkd`, `.mkdn`, `.mdwn`, `.mdtxt`, and `.mdtext` are exported under app-private UTIs (`doc.md-preview.*`) that conform to `net.daringfireball.markdown`. Because no other app declares UTIs in that namespace, LaunchServices has no competing candidate for these files and Markdown Preview opens them without requiring user intervention.
+
 ## [0.0.10] – 2026-05-04
 
 LaTeX math rendering, broader Markdown file-format support, and a rendering fix for inline HTML in body text and code.
