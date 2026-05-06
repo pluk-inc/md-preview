@@ -1512,6 +1512,7 @@ enum MarkdownHTML {
     @media (prefers-color-scheme: dark) {
         .math-error { color: #ff6e6e; }
     }
+    .katex { direction: ltr !important; unicode-bidi: isolate; }
 
     blockquote {
         margin: 1.6em 0 0;
