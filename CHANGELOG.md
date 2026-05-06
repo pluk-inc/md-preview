@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.15] – 2026-05-06
+
+A proper find bar and right-to-left text support.
+
+### Added
+
+- **Find bar with match navigation, modes, and a burst highlight.** Searching now opens a slim bar below the toolbar with an `X of N` counter, prev/next chevrons, a Done button, and a Contains / Begins With mode toggle. Enter and Shift+Enter cycle forward and backward through matches (the original ask in [#72](https://github.com/pluk-inc/md-preview.app/issues/72)), and the current match scale-pulses with a yellow pill so it's easy to spot after a long scroll. The find pass skips scrolling when the match is already on screen, debounces keystrokes, gates Begins-With on the preceding character, and filters hidden subtrees so KaTeX MathML mirrors and Mermaid source nodes don't show up as phantom matches ([#73](https://github.com/pluk-inc/md-preview.app/pull/73)).
+- **Automatic RTL text direction.** Paragraphs, list items, and headings whose first strong character is from an RTL script (Hebrew, Arabic, Syriac, etc.) now render with `dir="rtl"` and right alignment. Detection looks through inline markup (so `**שלום**` works), skips neutral characters like parentheses and punctuation, preserves any existing `dir` attribute, and leaves LTR-only documents unchanged ([#67](https://github.com/pluk-inc/md-preview.app/pull/67)).
+
+### Contributors
+
+Thanks to the external contributor who shipped in this release:
+
+- [@manemajef](https://github.com/manemajef) — automatic RTL text direction support ([#67](https://github.com/pluk-inc/md-preview.app/pull/67))
+
 ## [0.0.14] – 2026-05-06
 
 Quick Look now renders relative images.
