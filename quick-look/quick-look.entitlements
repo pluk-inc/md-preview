@@ -8,17 +8,9 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
-	<!--
-		Quick Look extensions are only granted read access to the previewed
-		file URL itself; siblings (referenced by ![](images/foo.png) etc.)
-		fail with NSPOSIXErrorDomain Code=1 "Operation not permitted". This
-		temporary-exception entitlement grants read-only access to the
-		filesystem so InlineLocalAssets can read referenced images and
-		embed them as QLPreviewReplyAttachment / cid: URLs.
-
-		Distributed via Developer ID + notarization (not the Mac App Store);
-		notarization accepts this exception. Same approach as QLMarkdown.
-	-->
+	<!-- Quick Look grants the extension the previewed file, but not sibling
+	     images. The read-only exception lets InlineLocalAssets embed relative
+	     images as cid: QLPreviewReplyAttachment entries. -->
 	<key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
 	<array>
 		<string>/</string>

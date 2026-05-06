@@ -23,5 +23,5 @@ Expectations:
   crash.
 
 If sandbox denials show up in Console.app filtered by `quick-look`, the
-extension's read access to siblings is being refused — escalate to the
-`cid:`/`QLPreviewReply.attachments` strategy.
+extension's read access to siblings is being refused before the
+`cid:`/`QLPreviewReply.attachments` rewrite can read the files.
