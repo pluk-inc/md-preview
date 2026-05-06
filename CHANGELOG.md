@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.14] – 2026-05-06
+
+Quick Look now renders relative images.
+
+### Added
+
+- **Relative images render in Quick Look previews.** When a Markdown file references sibling assets like `![](images/local.png)`, the Quick Look extension now inlines each readable sibling as a `cid:` attachment on the preview reply and rewrites the `<img src>` to match, so local images appear in Finder/Spotlight previews instead of as broken-image glyphs. The extension gained a read-only `temporary-exception.files.absolute-path.read-only` entitlement so the sandboxed preview process can read sibling files (the main app already handles this through its `md-asset://` scheme). Per-image and cumulative byte budgets cap pathological folders; absolute URLs, fragment refs, host-absolute paths, and unreadable files pass through untouched ([#68](https://github.com/pluk-inc/md-preview.app/pull/68)).
+
+### Contributors
+
+Thanks to the external contributor who shipped in this release:
+
+- [@DivineDominion](https://github.com/DivineDominion) — relative images in Quick Look previews ([#68](https://github.com/pluk-inc/md-preview.app/pull/68))
+
 ## [0.0.13] – 2026-05-05
 
 Native printing, plus two rendering fixes.
