@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.0.16] – 2026-05-07
+
+Mermaid diagrams you can pan and zoom, faster live-preview saves, and a polished find bar and sidebar.
+
+### Added
+
+- **Mermaid pan and zoom.** `⌘`+wheel or pinch zooms toward the cursor, drag pans at any zoom, and double-click toggles between 2× and fit. A hover HUD exposes `−` / `100%` / `+` controls, the diagram auto-recenters when you zoom back to 100%, and 100% is the floor (no shrinking below). Plain wheel still scrolls the page, so there's no scroll-jacking ([#62](https://github.com/pluk-inc/md-preview.app/pull/62)).
+- **`Match:` label with toggle buttons in the find bar.** The Contains / Begins With picker switched from a segmented control to two `NSButton` toggles fronted by a `Match:` label, matching macOS Preview's accessibility shape (`AXToggle` subrole). Re-clicking the active mode is a no-op so it doesn't trigger a redundant search ([#77](https://github.com/pluk-inc/md-preview.app/pull/77)).
+- **Hard scroll-edge effect under the find bar on macOS 26.1+.** The find-bar titlebar accessory opts into `preferredScrollEdgeEffectStyle = .hard`, giving it an opaque, sharp boundary against scrolling content. macOS 15 and 26.0 keep their existing look ([#77](https://github.com/pluk-inc/md-preview.app/pull/77)).
+- **Sidebar file name scrolls with the outline.** The file name moved out of a sticky header into the outline view itself as a non-selectable first row, so it scrolls away alongside the TOC instead of pinning to the top ([#77](https://github.com/pluk-inc/md-preview.app/pull/77)).
+
+### Changed
+
+- **Saves no longer reload the whole preview.** When the page is already loaded and the renderer mix (math / Mermaid / Shiki) hasn't changed, the article body is swapped via `evaluateJavaScript` and each renderer's idempotent reapplier re-runs in place — saves no longer reparse the 3 MB Mermaid bundle and 2.5 MB Shiki bundle. First load and renderer-mix changes still do a full HTML load, and `<base href="md-asset:///">` ships unconditionally so asset swaps don't force a reload ([#62](https://github.com/pluk-inc/md-preview.app/pull/62)).
+- **Mermaid diagrams render lazily with reserved layout space.** Each figure renders on intersection via `IntersectionObserver` instead of one big `mermaid.run`, and reserves space using `aspect-ratio` from its viewBox so the document height stops bouncing as diagrams stream in. `contain: strict` on the zoom stage isolates layout and paint ([#62](https://github.com/pluk-inc/md-preview.app/pull/62)).
+- **Web view height is now push-based.** A new `mdPreviewHost` script-message handler pushes content height from JS via `ResizeObserver` plus per-renderer done events, replacing the staggered Mermaid (`[0.6, 1.2, 2.4]s`), KaTeX / Shiki (`[0.15, 0.4, 0.9]s`), and inner-cascade polls. Height updates arrive exactly when layout changes ([#62](https://github.com/pluk-inc/md-preview.app/pull/62)).
+- **Re-displaying the same file is a no-op in the sidebar.** When the file watcher fires with identical markdown and file name, the sidebar skips the parse + reload + re-expand cycle, preserving expansion state without flicker ([#77](https://github.com/pluk-inc/md-preview.app/pull/77)).
+
+### Fixed
+
+- **Native overlay scrollbar restored when scrolling is allowed.** Dropped a redundant `::-webkit-scrollbar { display: initial !important; … }` rule that was overriding the macOS overlay scrollbar; WebKit now falls back to the system scrollbar ([#77](https://github.com/pluk-inc/md-preview.app/pull/77)).
+
+### Contributors
+
+Thanks to the external contributor who shipped in this release:
+
+- [@hailam](https://github.com/hailam) — Mermaid pan/zoom, lazy rendering, push-based height, and reload-free saves ([#62](https://github.com/pluk-inc/md-preview.app/pull/62))
+
 ## [0.0.15] – 2026-05-06
 
 A proper find bar and right-to-left text support.
