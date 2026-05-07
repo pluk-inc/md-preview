@@ -490,12 +490,13 @@ private extension NSView {
 }
 
 private final class NonScrollingWKWebView: WKWebView {
+    private enum Axis { case horizontal, vertical }
+    private var lockedAxis: Axis?
+
     override func scrollWheel(with event: NSEvent) {
-        // Horizontal-dominant scroll events (wide code blocks, tables, math
-        // displays) stay in the WebView so the inner overflow:auto element
-        // handles them. Vertical-dominant events forward to the outer
-        // NSScrollView since the WebView itself is sized to document height.
-        if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+        let axis = decideAxis(for: event)
+        if axis == .horizontal {
+            // Inner overflow:auto element (wide <pre>, table, math) handles it.
             super.scrollWheel(with: event)
             return
         }
@@ -504,6 +505,32 @@ private final class NonScrollingWKWebView: WKWebView {
         } else {
             super.scrollWheel(with: event)
         }
+    }
+
+    /// Lock routing axis at the start of a trackpad gesture and carry it
+    /// through .changed/.ended and any momentum that follows. Without this,
+    /// a momentary Y-dominant event mid-horizontal-swipe routes one frame
+    /// to the outer page scroller and the user sees a lurch. Mouse-wheel
+    /// events (phase empty) clear the lock and decide per-event.
+    private func decideAxis(for event: NSEvent) -> Axis {
+        let perEvent: Axis = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+            ? .horizontal : .vertical
+
+        if event.phase == .began {
+            lockedAxis = perEvent
+            return perEvent
+        }
+
+        let isTrackpadEvent = !event.phase.isEmpty || !event.momentumPhase.isEmpty
+        if isTrackpadEvent, let locked = lockedAxis {
+            if event.momentumPhase == .ended || event.momentumPhase == .cancelled {
+                lockedAxis = nil
+            }
+            return locked
+        }
+
+        lockedAxis = nil
+        return perEvent
     }
 }
 
