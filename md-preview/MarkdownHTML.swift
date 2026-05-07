@@ -7,7 +7,7 @@ import Foundation
 import Markdown
 
 enum MarkdownHTML {
-    /// How the heavy KaTeX/Mermaid/Shiki bundles are delivered.
+    /// How the heavy KaTeX/Mermaid bundles are delivered.
     /// - inline: bundles are embedded as `<script>…</script>` blocks in the
     ///   HTML head. Self-contained, slow first-paint, used by Quick Look
     ///   (which delivers HTML as a single QLPreviewReply payload).
@@ -24,7 +24,6 @@ enum MarkdownHTML {
         let articleHTML: String
         let containsMath: Bool
         let containsMermaid: Bool
-        let containsHighlightedCode: Bool
     }
 
     static func makeHTML(from markdown: String,
@@ -46,15 +45,13 @@ enum MarkdownHTML {
         let math = extractMath(from: footnotes.markdown)
         let formatted = EscapingHTMLFormatter.format(math.processedMarkdown)
         let mermaidResult = renderMermaidBlocks(in: formatted)
-        let shikiResult = detectHighlightableCode(in: mermaidResult.html)
-        let mathResult = renderMathBlocks(in: shikiResult.html, with: math)
+        let mathResult = renderMathBlocks(in: mermaidResult.html, with: math)
         let footnoteReferenceHTML = renderFootnoteReferences(in: mathResult.html, with: footnotes)
         let footnoteDefinitions = renderFootnoteDefinitions(footnotes)
         let headingsHTML = injectHeadingIDs(in: footnoteReferenceHTML + footnoteDefinitions.html)
         let bodyHTML = injectRTLDirection(in: headingsHTML)
         let containsMath = mathResult.containsMath || footnoteDefinitions.containsMath
         let containsMermaid = mermaidResult.containsMermaid || footnoteDefinitions.containsMermaid
-        let containsHighlightedCode = shikiResult.containsHighlightedCode || footnoteDefinitions.containsHighlightedCode
         let scrollOverride = allowsScroll ? """
         <style>
         html, body { overflow: auto !important; }
@@ -63,7 +60,6 @@ enum MarkdownHTML {
         let baseTag = assetBaseHref.map { "<base href=\"\($0)\">" } ?? ""
         let mathBlock = containsMath ? katexHead(mode: vendorLoading) : ""
         let mermaidBlock = containsMermaid ? mermaidScript(mode: vendorLoading) : ""
-        let shikiBlock = containsHighlightedCode ? shikiScript(mode: vendorLoading) : ""
         let html = """
         <!DOCTYPE html>
         <html>
@@ -76,7 +72,6 @@ enum MarkdownHTML {
         \(hostBridgeScript)
         \(mathBlock)
         \(mermaidBlock)
-        \(shikiBlock)
         </head>
         <body>
         <article class="markdown-body">
@@ -89,8 +84,7 @@ enum MarkdownHTML {
             html: html,
             articleHTML: bodyHTML,
             containsMath: containsMath,
-            containsMermaid: containsMermaid,
-            containsHighlightedCode: containsHighlightedCode
+            containsMermaid: containsMermaid
         )
     }
 
@@ -229,7 +223,6 @@ enum MarkdownHTML {
         let html: String
         let containsMath: Bool
         let containsMermaid: Bool
-        let containsHighlightedCode: Bool
     }
 
     private static let footnoteDefinitionRegex: NSRegularExpression = {
@@ -417,20 +410,17 @@ enum MarkdownHTML {
             return FootnoteDefinitionRenderResult(
                 html: "",
                 containsMath: false,
-                containsMermaid: false,
-                containsHighlightedCode: false
+                containsMermaid: false
             )
         }
 
         var containsMath = false
         var containsMermaid = false
-        var containsHighlightedCode = false
         let referencesByNumber = Dictionary(grouping: footnotes.references, by: { $0.number })
         let items = footnotes.definitions.map { definition -> String in
             let renderedContent = renderFootnoteDefinitionContent(definition.content)
             containsMath = containsMath || renderedContent.containsMath
             containsMermaid = containsMermaid || renderedContent.containsMermaid
-            containsHighlightedCode = containsHighlightedCode || renderedContent.containsHighlightedCode
             let backrefs = (referencesByNumber[definition.number] ?? []).map { reference in
                 """
                 <a href="#\(footnoteReferenceID(number: reference.number, ordinal: reference.ordinal))" class="footnote-backref" aria-label="Back to reference \(reference.number)">&#8617;</a>
@@ -456,8 +446,7 @@ enum MarkdownHTML {
             </section>
             """,
             containsMath: containsMath,
-            containsMermaid: containsMermaid,
-            containsHighlightedCode: containsHighlightedCode
+            containsMermaid: containsMermaid
         )
     }
 
@@ -476,13 +465,11 @@ enum MarkdownHTML {
         let math = extractMath(from: markdown.trimmingCharacters(in: .whitespacesAndNewlines))
         let formatted = EscapingHTMLFormatter.format(math.processedMarkdown)
         let mermaidResult = renderMermaidBlocks(in: formatted)
-        let shikiResult = detectHighlightableCode(in: mermaidResult.html)
-        let mathResult = renderMathBlocks(in: shikiResult.html, with: math)
+        let mathResult = renderMathBlocks(in: mermaidResult.html, with: math)
         return FootnoteDefinitionRenderResult(
             html: mathResult.html,
             containsMath: mathResult.containsMath,
-            containsMermaid: mermaidResult.containsMermaid,
-            containsHighlightedCode: shikiResult.containsHighlightedCode
+            containsMermaid: mermaidResult.containsMermaid
         )
     }
 
@@ -736,7 +723,7 @@ enum MarkdownHTML {
             }
         };
 
-        // Incremental-update entry point. Each renderer (KaTeX/Mermaid/Shiki)
+        // Incremental-update entry point. Each renderer (KaTeX/Mermaid)
         // registers an idempotent reapplier that re-processes the current
         // article. Same-flag re-renders skip the WKWebView reload entirely.
         const reappliers = [];
@@ -765,7 +752,6 @@ enum MarkdownHTML {
                 if (article) ro.observe(article);
             } catch (e) {}
             window.addEventListener('md-preview-mermaid-rendered', pushHeight);
-            window.addEventListener('md-preview-shiki-rendered', pushHeight);
             window.addEventListener('md-preview-math-rendered', pushHeight);
             window.addEventListener('load', pushHeight);
         }
@@ -1237,17 +1223,15 @@ enum MarkdownHTML {
             <script>
             \(safeVendor)
 
-            (() => {
-                const { bootstrap } = \(mermaidInitWiring);
-                if (window.MdPreview && window.MdPreview.registerReapplier) {
-                    window.MdPreview.registerReapplier(bootstrap);
-                }
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
-                } else {
-                    bootstrap();
-                }
-            })();
+            const __mdpMermaid = \(mermaidInitWiring);
+            if (window.MdPreview && window.MdPreview.registerReapplier) {
+                window.MdPreview.registerReapplier(__mdpMermaid.bootstrap);
+            }
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', __mdpMermaid.bootstrap, { once: true });
+            } else {
+                __mdpMermaid.bootstrap();
+            }
             </script>
             """
         case .lazy:
@@ -1268,96 +1252,7 @@ enum MarkdownHTML {
         }
     }
 
-    // MARK: - Syntax highlighting (Shiki)
-
-    private struct ShikiRenderResult {
-        let html: String
-        let containsHighlightedCode: Bool
-    }
-
-    private static let highlightableCodeRegex: NSRegularExpression = {
-        // swiftlint:disable:next force_try
-        try! NSRegularExpression(pattern: #"<pre><code class="language-[^"]+">"#)
-    }()
-
-    private static func detectHighlightableCode(in html: String) -> ShikiRenderResult {
-        let nsHtml = html as NSString
-        let firstMatch = highlightableCodeRegex.firstMatch(
-            in: html,
-            range: NSRange(location: 0, length: nsHtml.length)
-        )
-        return ShikiRenderResult(html: html, containsHighlightedCode: firstMatch != nil)
-    }
-
-    private static let shikiFallbackScript = """
-    <script>
-    window.addEventListener('load', () => {
-        document.querySelectorAll('pre > code[class*="language-"]').forEach((node) => {
-            const pre = node.parentElement;
-            if (!pre || node.classList.contains('language-mermaid')) return;
-            pre.classList.add('shiki-error');
-            pre.setAttribute('data-shiki-error', 'Shiki renderer is unavailable.');
-        });
-    });
-    </script>
-    """
-
-    /// Definition of `async function runShiki()`. Shared by both modes;
-    /// the mode wrapper adds the trigger (immediate vs post-paint).
-    private static let shikiRunShikiBody = """
-    async function runShiki() {
-        if (!window.MdPreviewShiki || !window.MdPreviewShiki.renderAll) return;
-        try {
-            await window.MdPreviewShiki.renderAll(document);
-            window.dispatchEvent(new Event('md-preview-shiki-rendered'));
-        } catch (error) {
-            document.querySelectorAll('pre > code[class*="language-"]').forEach((node) => {
-                const pre = node.parentElement;
-                if (!pre || node.classList.contains('language-mermaid')) return;
-                pre.classList.add('shiki-error');
-                pre.setAttribute('data-shiki-error', String((error && error.message) || error));
-            });
-            console.error('Shiki rendering failed', error);
-        }
-    }
-    """
-
-    private static func shikiScript(mode: VendorLoading) -> String {
-        guard bundledVendorURL("shiki.bundle", ext: "js", subdir: "Vendor/Shiki") != nil else {
-            return shikiFallbackScript
-        }
-        switch mode {
-        case .inline:
-            let vendorJS = bundledVendorResource("shiki.bundle", ext: "js", subdir: "Vendor/Shiki") ?? ""
-            let safeVendor = vendorJS.replacingOccurrences(of: "</script", with: "<\\/script")
-            return """
-            <script>
-            \(safeVendor)
-
-            \(shikiRunShikiBody)
-            if (window.MdPreview && window.MdPreview.registerReapplier) {
-                window.MdPreview.registerReapplier(() => { runShiki(); });
-            }
-            window.addEventListener('load', runShiki);
-            </script>
-            """
-        case .lazy:
-            return """
-            <script>
-            (() => {
-                \(shikiRunShikiBody)
-                window.MdPreviewLazy.lazyRenderer({
-                    src: '\(MarkdownAssetScheme.vendorURL("shiki.bundle.js"))',
-                    run: runShiki,
-                });
-            })();
-            </script>
-            """
-        }
-    }
-
     private final class MarkdownHTMLBundleToken {}
-
 
     // Mirrors MarkdownUI's Theme.docC. Top-only margins (bottom: 0), Apple SF
     // palette (text #1d1d1f / #f5f5f7, link #0066cc / #2997ff, grid #d2d2d7 /
@@ -1553,28 +1448,6 @@ enum MarkdownHTML {
         padding: 0;
         background: transparent;
         font-size: 0.88em;
-    }
-    .shiki,
-    .shiki code {
-        font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    }
-    .shiki {
-        background: var(--code-bg) !important;
-    }
-    .shiki code {
-        display: block;
-        min-width: max-content;
-    }
-    @media (prefers-color-scheme: dark) {
-        .shiki span {
-            color: var(--shiki-dark) !important;
-            font-style: var(--shiki-dark-font-style) !important;
-            font-weight: var(--shiki-dark-font-weight) !important;
-            text-decoration: var(--shiki-dark-text-decoration) !important;
-        }
-    }
-    .shiki-error {
-        outline: 1px solid rgba(176, 0, 32, 0.35);
     }
     .mermaid-figure {
         position: relative;

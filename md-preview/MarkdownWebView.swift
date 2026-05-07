@@ -32,14 +32,11 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     private struct RendererFingerprint: Equatable {
         let math: Bool
         let mermaid: Bool
-        let shiki: Bool
 
         /// True if every renderer the new doc needs is already loaded — the
         /// gate for the fast-path innerHTML swap.
         func covers(_ other: RendererFingerprint) -> Bool {
-            (!other.math || math)
-                && (!other.mermaid || mermaid)
-                && (!other.shiki || shiki)
+            (!other.math || math) && (!other.mermaid || mermaid)
         }
     }
     private var loadedFingerprint: RendererFingerprint?
@@ -69,9 +66,9 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         }
     }
 
-    /// Synthetic markdown that flips all three renderer flags (math / mermaid
-    /// / shiki). Loaded into the WebView at launch so the heavy vendor JS is
-    /// parsed and executed before the user picks a real file. Every later
+    /// Synthetic markdown that flips both renderer flags (math + mermaid).
+    /// Loaded into the WebView at launch so the heavy vendor JS is parsed
+    /// and executed before the user picks a real file. Every later
     /// `display()` call then hits the fast-path (innerHTML swap + reapplier
     /// sweep) instead of paying for a full reload.
     private static let warmupMarkdown = """
@@ -79,10 +76,6 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
 
     ```mermaid
     graph TD; A-->B
-    ```
-
-    ```swift
-    let x = 1
     ```
     """
 
@@ -94,8 +87,7 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
                                            vendorLoading: .lazy)
         loadedFingerprint = RendererFingerprint(
             math: rendered.containsMath,
-            mermaid: rendered.containsMermaid,
-            shiki: rendered.containsHighlightedCode
+            mermaid: rendered.containsMermaid
         )
         webView.loadHTMLString(rendered.html, baseURL: nil)
     }
@@ -127,15 +119,14 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
                                            vendorLoading: .lazy)
         let fingerprint = RendererFingerprint(
             math: rendered.containsMath,
-            mermaid: rendered.containsMermaid,
-            shiki: rendered.containsHighlightedCode
+            mermaid: rendered.containsMermaid
         )
         currentAssetBase = assetBaseURL
 
         // Fast path: the loaded page already has every renderer the new doc
         // needs — swap the article body via JS instead of reloading the
         // WKWebView (which would re-parse and re-execute the multi-MB vendor
-        // bundles). The launch-time warmup loads all three vendors, so any
+        // bundles). The launch-time warmup loads both vendors, so any
         // subsequent file with any subset of renderers fast-paths into it.
         if isPageReady, let loaded = loadedFingerprint, loaded.covers(fingerprint) {
             let payload = javaScriptStringLiteral(rendered.articleHTML)

@@ -27,7 +27,7 @@ nonisolated final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
     /// request — vendor bundles never change for the lifetime of the app
     /// process, and WKWebView's NSURLCache doesn't cover custom-scheme
     /// responses, so without this cache every `<script src>` re-reads the
-    /// 2.5 MB Shiki / 3 MB Mermaid blob from disk.
+    /// 3 MB Mermaid blob from disk.
     private nonisolated static let vendorDataCache = VendorDataCache()
 
     private let queue = DispatchQueue(label: "doc.md-preview.asset-scheme", qos: .userInitiated)
@@ -73,7 +73,6 @@ nonisolated final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
             "katex.min.js":    ("katex.min",    "js",  "Vendor/KaTeX"),
             "copy-tex.min.js": ("copy-tex.min", "js",  "Vendor/KaTeX"),
             "mermaid.min.js":  ("mermaid.min",  "js",  "Vendor/Mermaid"),
-            "shiki.bundle.js": ("shiki.bundle", "js",  "Vendor/Shiki")
         ]
         guard let entry = mapping[filename] else { return nil }
 

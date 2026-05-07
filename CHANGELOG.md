@@ -2,17 +2,21 @@
 
 ## [0.0.18] – 2026-05-07
 
-A faster cold launch and snappier file switches.
+A faster cold launch, snappier file switches, and a temporary step back on syntax highlighting while a non-blocking solution is built.
 
 ### Added
 
-- **Vendor JS warms up at launch.** A synthetic markdown doc renders into the WebView while the open panel is still on screen, so KaTeX, Mermaid, and Shiki finish parsing before the user picks a file. By the time the picked file lands, the renderers are already ready ([#84](https://github.com/pluk-inc/md-preview.app/pull/84)).
+- **Vendor JS warms up at launch.** A synthetic markdown doc renders into the WebView while the open panel is still on screen, so KaTeX and Mermaid finish parsing before the user picks a file. By the time the picked file lands, the renderers are already ready ([#84](https://github.com/pluk-inc/md-preview.app/pull/84)).
 
 ### Changed
 
-- **Cold-open of a 4 KB markdown file dropped from ~400 ms to ~50 ms (5–8× faster perceived load).** Vendor JS (KaTeX, Mermaid, Shiki — ~5 MB total) used to be inlined in the HTML head, blocking the parser on every load. It now lazy-loads after first paint via the `md-asset:` scheme, so the article is visible before the bundles finish downloading. The asset-scheme handler caches vendor blobs in `NSCache` and resolves `__vendor/<file>` paths from the app bundle independently of the user-file base URL. Quick Look continues to use inline delivery because its `QLPreviewReply` payload model bundles HTML and attachments differently ([#84](https://github.com/pluk-inc/md-preview.app/pull/84)).
+- **Cold-open of a 4 KB markdown file dropped from ~400 ms to ~50 ms (5–8× faster perceived load).** Vendor JS used to be inlined in the HTML head, blocking the parser on every load. It now lazy-loads after first paint via the `md-asset:` scheme, so the article is visible before the bundles finish downloading. The asset-scheme handler caches vendor blobs in `NSCache` and resolves `__vendor/<file>` paths from the app bundle independently of the user-file base URL. Quick Look continues to use inline delivery because its `QLPreviewReply` payload model bundles HTML and attachments differently ([#84](https://github.com/pluk-inc/md-preview.app/pull/84)).
 - **Switching files takes a fast path instead of a full WebView reload.** When the renderer mix matches what's already loaded, the article body is swapped in place via `MdPreview.update(articleHTML)` and each renderer's idempotent reapplier re-runs — no `loadHTMLString` reload, no vendor re-parse. A `RendererFingerprint.covers(_:)` check lets any subset of renderers fast-path into the all-true warmup state ([#84](https://github.com/pluk-inc/md-preview.app/pull/84)).
 - **Stale content clears while sheets are dismissing.** Opening a new file now blanks the preview during sheet dismissal so the previous doc doesn't linger behind the open panel ([#84](https://github.com/pluk-inc/md-preview.app/pull/84)).
+
+### Removed
+
+- **Syntax highlighting (Shiki) removed for now.** Shiki was pinning the JS thread for ~1 s on a code block's first cold grammar compile (TypeScript was the worst offender), even after launch warmup, idle-defer, per-block IntersectionObserver, and post-paint background grammar warmups. The cost is inherent to TextMate-grammar regex compilation on the main thread, so the only viable fix is moving Shiki into a Web Worker, which warrants its own release. Code blocks now render with the existing monospace + rounded grey background, just without per-token color. The 2.5 MB `shiki.bundle.js` is no longer shipped in the app bundle.
 
 ## [0.0.17] – 2026-05-07
 
