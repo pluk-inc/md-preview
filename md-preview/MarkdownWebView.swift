@@ -33,6 +33,14 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         let math: Bool
         let mermaid: Bool
         let shiki: Bool
+
+        /// True if every renderer the new doc needs is already loaded — the
+        /// gate for the fast-path innerHTML swap.
+        func covers(_ other: RendererFingerprint) -> Bool {
+            (!other.math || math)
+                && (!other.mermaid || mermaid)
+                && (!other.shiki || shiki)
+        }
     }
     private var loadedFingerprint: RendererFingerprint?
     private var isPageReady = false
@@ -57,7 +65,39 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         ])
         DispatchQueue.main.async { [weak self] in
             self?.neutralizeWebKitScrollEdgeInsets()
+            self?.warmupVendors()
         }
+    }
+
+    /// Synthetic markdown that flips all three renderer flags (math / mermaid
+    /// / shiki). Loaded into the WebView at launch so the heavy vendor JS is
+    /// parsed and executed before the user picks a real file. Every later
+    /// `display()` call then hits the fast-path (innerHTML swap + reapplier
+    /// sweep) instead of paying for a full reload.
+    private static let warmupMarkdown = """
+    $x$
+
+    ```mermaid
+    graph TD; A-->B
+    ```
+
+    ```swift
+    let x = 1
+    ```
+    """
+
+    private func warmupVendors() {
+        guard !isPageReady, loadedFingerprint == nil else { return }
+        let baseHref = "\(MarkdownAssetScheme.scheme):///"
+        let rendered = MarkdownHTML.render(markdown: Self.warmupMarkdown,
+                                           assetBaseHref: baseHref,
+                                           vendorLoading: .lazy)
+        loadedFingerprint = RendererFingerprint(
+            math: rendered.containsMath,
+            mermaid: rendered.containsMermaid,
+            shiki: rendered.containsHighlightedCode
+        )
+        webView.loadHTMLString(rendered.html, baseURL: nil)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -72,10 +112,19 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         neutralizeWebKitScrollEdgeInsets()
     }
 
+    /// Empties the visible article without unloading the page, so the next
+    /// `display()` still hits the fast-path.
+    func clearContent() {
+        guard isPageReady else { return }
+        webView.evaluateJavaScript("window.MdPreview && MdPreview.update('');") { _, _ in }
+    }
+
     func display(markdown: String, assetBaseURL: URL? = nil) {
         assetScheme.setBaseURL(assetBaseURL)
         let baseHref = "\(MarkdownAssetScheme.scheme):///"
-        let rendered = MarkdownHTML.render(markdown: markdown, assetBaseHref: baseHref)
+        let rendered = MarkdownHTML.render(markdown: markdown,
+                                           assetBaseHref: baseHref,
+                                           vendorLoading: .lazy)
         let fingerprint = RendererFingerprint(
             math: rendered.containsMath,
             mermaid: rendered.containsMermaid,
@@ -83,10 +132,12 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         )
         currentAssetBase = assetBaseURL
 
-        // Fast path: page is already loaded and uses the same renderer mix —
-        // swap the article body via JS instead of reloading the WKWebView
-        // (which would re-parse and re-execute the multi-MB vendor bundles).
-        if isPageReady, loadedFingerprint == fingerprint {
+        // Fast path: the loaded page already has every renderer the new doc
+        // needs — swap the article body via JS instead of reloading the
+        // WKWebView (which would re-parse and re-execute the multi-MB vendor
+        // bundles). The launch-time warmup loads all three vendors, so any
+        // subsequent file with any subset of renderers fast-paths into it.
+        if isPageReady, let loaded = loadedFingerprint, loaded.covers(fingerprint) {
             let payload = javaScriptStringLiteral(rendered.articleHTML)
             webView.evaluateJavaScript("window.MdPreview && MdPreview.update(\(payload));") { _, _ in }
             return
@@ -440,6 +491,14 @@ private extension NSView {
 
 private final class NonScrollingWKWebView: WKWebView {
     override func scrollWheel(with event: NSEvent) {
+        // Horizontal-dominant scroll events (wide code blocks, tables, math
+        // displays) stay in the WebView so the inner overflow:auto element
+        // handles them. Vertical-dominant events forward to the outer
+        // NSScrollView since the WebView itself is sized to document height.
+        if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+            super.scrollWheel(with: event)
+            return
+        }
         if let outerScrollView = superview?.enclosingScrollView {
             outerScrollView.scrollWheel(with: event)
         } else {

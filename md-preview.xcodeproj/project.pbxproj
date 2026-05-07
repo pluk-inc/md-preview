@@ -51,13 +51,13 @@
 		9A02092D2FA10D4C00092060 /* quick-look.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "quick-look.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		9A02092F2FA10D4C00092060 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
 		9A0209A02FA1100100092060 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
-		9AF000000000000000000101 /* mermaid.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = mermaid.min.js; path = md-preview/Vendor/Mermaid/mermaid.min.js; sourceTree = "<group>"; };
-		9AF000000000000000000102 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; name = LICENSE; path = md-preview/Vendor/Mermaid/LICENSE; sourceTree = "<group>"; };
+		9AF000000000000000000101 /* mermaid.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = mermaid.min.js; path = "md-preview/Vendor/Mermaid/mermaid.min.js"; sourceTree = "<group>"; };
+		9AF000000000000000000102 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; name = LICENSE; path = "md-preview/Vendor/Mermaid/LICENSE"; sourceTree = "<group>"; };
 		9AF000000000000000000103 /* katex.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = katex.min.js; path = "md-preview/Vendor/KaTeX/katex.min.js"; sourceTree = "<group>"; };
 		9AF000000000000000000104 /* katex.min.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; name = katex.min.css; path = "md-preview/Vendor/KaTeX/katex.min.css"; sourceTree = "<group>"; };
 		9AF000000000000000000105 /* copy-tex.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "copy-tex.min.js"; path = "md-preview/Vendor/KaTeX/copy-tex.min.js"; sourceTree = "<group>"; };
 		9AF000000000000000000106 /* KaTeX-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = "KaTeX-LICENSE.txt"; path = "md-preview/Vendor/KaTeX/KaTeX-LICENSE.txt"; sourceTree = "<group>"; };
-		9AF000000000000000000107 /* shiki.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = shiki.bundle.js; path = md-preview/Vendor/Shiki/shiki.bundle.js; sourceTree = "<group>"; };
+		9AF000000000000000000107 /* shiki.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = shiki.bundle.js; path = "md-preview/Vendor/Shiki/shiki.bundle.js"; sourceTree = "<group>"; };
 		9AF000000000000000000108 /* Shiki-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = "Shiki-LICENSE.txt"; path = "md-preview/Vendor/Shiki/Shiki-LICENSE.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 

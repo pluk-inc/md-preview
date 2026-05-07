@@ -69,6 +69,10 @@ final class ContentViewController: NSViewController {
         webView.display(markdown: markdown, assetBaseURL: assetBaseURL)
     }
 
+    func clearContent() {
+        webView.clearContent()
+    }
+
     func find(_ query: String,
               backwards: Bool = false,
               mode: SearchMode = .contains,

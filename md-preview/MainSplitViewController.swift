@@ -44,6 +44,10 @@ final class MainSplitViewController: NSSplitViewController {
         inspectorViewController?.display(metadata: DocumentMetadata.make(url: url, markdown: markdown))
     }
 
+    func clearContent() {
+        contentViewController?.clearContent()
+    }
+
     func find(_ query: String,
               backwards: Bool = false,
               mode: SearchMode = .contains,
