@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.17] – 2026-05-07
+
+Two macOS 26 fixes — the window opens at full size again, and inline math renders correctly in RTL paragraphs.
+
+### Fixed
+
+- **Window no longer launches collapsed on macOS 26.** The find bar's bottom rule (an `NSBox` with `boxType = .separator`) inside a bottom `NSTitlebarAccessoryViewController` was triggering an AppKit layout regression that bypassed the window's `contentMinSize` and snapped the window to the toolbar's natural minimum width (~169 pt) on launch. Only vertical resizing worked, and toggling the sidebar made the window disappear. Replaced the find-bar separator and the access banner's separators with a 1 pt `NSView` filled with `NSColor.separatorColor` — same look, no regression ([#79](https://github.com/pluk-inc/md-preview.app/issues/79), [#81](https://github.com/pluk-inc/md-preview.app/pull/81)).
+- **Inline KaTeX math stays LTR inside RTL paragraphs.** Math embedded in Hebrew / Arabic paragraphs was inheriting the surrounding RTL direction and rendering reversed (e.g. `$f(x)=x^2$` came out as `f(x) = ^2x`). The Markdown stylesheet now pins `.katex` to `direction: ltr` with `unicode-bidi: isolate`, so math renders LTR while the surrounding RTL text continues to flow right-to-left ([#76](https://github.com/pluk-inc/md-preview.app/pull/76)).
+
+### Contributors
+
+Thanks to the external contributors who shipped in this release:
+
+- [@manemajef](https://github.com/manemajef) — inline KaTeX math direction fix in RTL paragraphs ([#76](https://github.com/pluk-inc/md-preview.app/pull/76))
+- [@pryley](https://github.com/pryley) — reported the window-collapse bug on macOS 26 ([#79](https://github.com/pluk-inc/md-preview.app/issues/79))
+
 ## [0.0.16] – 2026-05-07
 
 Mermaid diagrams you can pan and zoom, faster live-preview saves, and a polished find bar and sidebar.
