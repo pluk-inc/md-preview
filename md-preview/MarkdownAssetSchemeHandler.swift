@@ -13,7 +13,22 @@ import WebKit
 /// content process is sandboxed separately.
 final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
 
-    static let scheme = "md-asset"
+    nonisolated static let scheme = "md-asset"
+    /// URL path prefix reserved for app-bundled vendor scripts (lazy-loaded).
+    nonisolated static let vendorPathPrefix = "/__vendor/"
+
+    /// Builds an `md-asset:///__vendor/<filename>` URL string for use in
+    /// `<script src=…>` tags emitted by the lazy renderer wirings.
+    nonisolated static func vendorURL(_ filename: String) -> String {
+        "\(scheme)://\(vendorPathPrefix)\(filename)"
+    }
+
+    /// Vendor-file byte cache. Populated lazily by `serve(...)` on first
+    /// request — vendor bundles never change for the lifetime of the app
+    /// process, and WKWebView's NSURLCache doesn't cover custom-scheme
+    /// responses, so without this cache every `<script src>` re-reads the
+    /// 2.5 MB Shiki / 3 MB Mermaid blob from disk.
+    private static let vendorDataCache = NSCache<NSURL, NSData>()
 
     private let queue = DispatchQueue(label: "doc.md-preview.asset-scheme", qos: .userInitiated)
     private let lock = NSLock()
@@ -45,41 +60,100 @@ final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
         return candidate
     }
 
+    /// Resolves a `/__vendor/<file>` URL to a file inside the app bundle's
+    /// `Vendor/<Renderer>/` subfolder. Returns `nil` if the filename isn't on
+    /// the allow-list — keeps the scheme from leaking other bundle resources.
+    static func resolveVendor(_ url: URL) -> URL? {
+        let path = url.path
+        guard path.hasPrefix(vendorPathPrefix) else { return nil }
+        let filename = String(path.dropFirst(vendorPathPrefix.count))
+
+        // Allow-list mapping: <url filename> -> (resource name, ext, subdir)
+        let mapping: [String: (name: String, ext: String, subdir: String)] = [
+            "katex.min.js":    ("katex.min",    "js",  "Vendor/KaTeX"),
+            "copy-tex.min.js": ("copy-tex.min", "js",  "Vendor/KaTeX"),
+            "mermaid.min.js":  ("mermaid.min",  "js",  "Vendor/Mermaid"),
+            "shiki.bundle.js": ("shiki.bundle", "js",  "Vendor/Shiki")
+        ]
+        guard let entry = mapping[filename] else { return nil }
+
+        let bundles = [Bundle.main, Bundle(for: MarkdownAssetScheme.self)]
+        for bundle in bundles {
+            if let url = bundle.url(forResource: entry.name,
+                                    withExtension: entry.ext,
+                                    subdirectory: entry.subdir) {
+                return url
+            }
+            if let url = bundle.url(forResource: entry.name,
+                                    withExtension: entry.ext) {
+                return url
+            }
+        }
+        return nil
+    }
+
     func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
         let request = urlSchemeTask.request
         let base = currentBaseURL()
         let wrapper = TaskWrapper(task: urlSchemeTask)
 
         queue.async {
-            guard let base, let requestURL = request.url,
-                  let resolved = Self.resolve(requestURL, against: base) else {
+            guard let requestURL = request.url else {
                 wrapper.task.didFailWithError(URLError(.badURL))
                 return
             }
 
-            do {
-                let data = try Data(contentsOf: resolved)
-                let mime = Self.mimeType(for: resolved)
-                let response = HTTPURLResponse(
-                    url: requestURL,
-                    statusCode: 200,
-                    httpVersion: "HTTP/1.1",
-                    headerFields: [
-                        "Content-Type": mime,
-                        "Content-Length": String(data.count),
-                        "Access-Control-Allow-Origin": "*"
-                    ]
-                ) ?? URLResponse(url: requestURL,
-                                 mimeType: mime,
-                                 expectedContentLength: data.count,
-                                 textEncodingName: nil)
-                wrapper.task.didReceive(response)
-                wrapper.task.didReceive(data)
-                wrapper.task.didFinish()
-            } catch {
-                wrapper.task.didFailWithError(URLError(.fileDoesNotExist))
+            // Vendor scripts are served from the app bundle and do not depend
+            // on the user-file base URL — they must load even before/without
+            // sandbox access to the user's folder.
+            if let vendorURL = Self.resolveVendor(requestURL) {
+                Self.serve(file: vendorURL, requestURL: requestURL, task: wrapper.task, cacheable: true)
+                return
             }
+
+            guard let base,
+                  let resolved = Self.resolve(requestURL, against: base) else {
+                wrapper.task.didFailWithError(URLError(.badURL))
+                return
+            }
+            Self.serve(file: resolved, requestURL: requestURL, task: wrapper.task, cacheable: false)
         }
+    }
+
+    private static func serve(file resolved: URL,
+                              requestURL: URL,
+                              task: any WKURLSchemeTask,
+                              cacheable: Bool) {
+        let data: Data
+        if cacheable, let cached = vendorDataCache.object(forKey: resolved as NSURL) {
+            data = cached as Data
+        } else {
+            guard let read = try? Data(contentsOf: resolved) else {
+                task.didFailWithError(URLError(.fileDoesNotExist))
+                return
+            }
+            if cacheable {
+                vendorDataCache.setObject(read as NSData, forKey: resolved as NSURL)
+            }
+            data = read
+        }
+        let mime = mimeType(for: resolved)
+        let response = HTTPURLResponse(
+            url: requestURL,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: [
+                "Content-Type": mime,
+                "Content-Length": String(data.count),
+                "Access-Control-Allow-Origin": "*"
+            ]
+        ) ?? URLResponse(url: requestURL,
+                         mimeType: mime,
+                         expectedContentLength: data.count,
+                         textEncodingName: nil)
+        task.didReceive(response)
+        task.didReceive(data)
+        task.didFinish()
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}

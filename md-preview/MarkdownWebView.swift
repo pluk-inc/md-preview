@@ -33,6 +33,14 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         let math: Bool
         let mermaid: Bool
         let shiki: Bool
+
+        /// True if every renderer the new doc needs is already loaded — the
+        /// gate for the fast-path innerHTML swap.
+        func covers(_ other: RendererFingerprint) -> Bool {
+            (!other.math || math)
+                && (!other.mermaid || mermaid)
+                && (!other.shiki || shiki)
+        }
     }
     private var loadedFingerprint: RendererFingerprint?
     private var isPageReady = false
@@ -57,7 +65,39 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         ])
         DispatchQueue.main.async { [weak self] in
             self?.neutralizeWebKitScrollEdgeInsets()
+            self?.warmupVendors()
         }
+    }
+
+    /// Synthetic markdown that flips all three renderer flags (math / mermaid
+    /// / shiki). Loaded into the WebView at launch so the heavy vendor JS is
+    /// parsed and executed before the user picks a real file. Every later
+    /// `display()` call then hits the fast-path (innerHTML swap + reapplier
+    /// sweep) instead of paying for a full reload.
+    private static let warmupMarkdown = """
+    $x$
+
+    ```mermaid
+    graph TD; A-->B
+    ```
+
+    ```swift
+    let x = 1
+    ```
+    """
+
+    private func warmupVendors() {
+        guard !isPageReady, loadedFingerprint == nil else { return }
+        let baseHref = "\(MarkdownAssetScheme.scheme):///"
+        let rendered = MarkdownHTML.render(markdown: Self.warmupMarkdown,
+                                           assetBaseHref: baseHref,
+                                           vendorLoading: .lazy)
+        loadedFingerprint = RendererFingerprint(
+            math: rendered.containsMath,
+            mermaid: rendered.containsMermaid,
+            shiki: rendered.containsHighlightedCode
+        )
+        webView.loadHTMLString(rendered.html, baseURL: nil)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -72,10 +112,19 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         neutralizeWebKitScrollEdgeInsets()
     }
 
+    /// Empties the visible article without unloading the page, so the next
+    /// `display()` still hits the fast-path.
+    func clearContent() {
+        guard isPageReady else { return }
+        webView.evaluateJavaScript("window.MdPreview && MdPreview.update('');") { _, _ in }
+    }
+
     func display(markdown: String, assetBaseURL: URL? = nil) {
         assetScheme.setBaseURL(assetBaseURL)
         let baseHref = "\(MarkdownAssetScheme.scheme):///"
-        let rendered = MarkdownHTML.render(markdown: markdown, assetBaseHref: baseHref)
+        let rendered = MarkdownHTML.render(markdown: markdown,
+                                           assetBaseHref: baseHref,
+                                           vendorLoading: .lazy)
         let fingerprint = RendererFingerprint(
             math: rendered.containsMath,
             mermaid: rendered.containsMermaid,
@@ -83,10 +132,12 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         )
         currentAssetBase = assetBaseURL
 
-        // Fast path: page is already loaded and uses the same renderer mix —
-        // swap the article body via JS instead of reloading the WKWebView
-        // (which would re-parse and re-execute the multi-MB vendor bundles).
-        if isPageReady, loadedFingerprint == fingerprint {
+        // Fast path: the loaded page already has every renderer the new doc
+        // needs — swap the article body via JS instead of reloading the
+        // WKWebView (which would re-parse and re-execute the multi-MB vendor
+        // bundles). The launch-time warmup loads all three vendors, so any
+        // subsequent file with any subset of renderers fast-paths into it.
+        if isPageReady, let loaded = loadedFingerprint, loaded.covers(fingerprint) {
             let payload = javaScriptStringLiteral(rendered.articleHTML)
             webView.evaluateJavaScript("window.MdPreview && MdPreview.update(\(payload));") { _, _ in }
             return
@@ -439,12 +490,47 @@ private extension NSView {
 }
 
 private final class NonScrollingWKWebView: WKWebView {
+    private enum Axis { case horizontal, vertical }
+    private var lockedAxis: Axis?
+
     override func scrollWheel(with event: NSEvent) {
+        let axis = decideAxis(for: event)
+        if axis == .horizontal {
+            // Inner overflow:auto element (wide <pre>, table, math) handles it.
+            super.scrollWheel(with: event)
+            return
+        }
         if let outerScrollView = superview?.enclosingScrollView {
             outerScrollView.scrollWheel(with: event)
         } else {
             super.scrollWheel(with: event)
         }
+    }
+
+    /// Lock routing axis at the start of a trackpad gesture and carry it
+    /// through .changed/.ended and any momentum that follows. Without this,
+    /// a momentary Y-dominant event mid-horizontal-swipe routes one frame
+    /// to the outer page scroller and the user sees a lurch. Mouse-wheel
+    /// events (phase empty) clear the lock and decide per-event.
+    private func decideAxis(for event: NSEvent) -> Axis {
+        let perEvent: Axis = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+            ? .horizontal : .vertical
+
+        if event.phase == .began {
+            lockedAxis = perEvent
+            return perEvent
+        }
+
+        let isTrackpadEvent = !event.phase.isEmpty || !event.momentumPhase.isEmpty
+        if isTrackpadEvent, let locked = lockedAxis {
+            if event.momentumPhase == .ended || event.momentumPhase == .cancelled {
+                lockedAxis = nil
+            }
+            return locked
+        }
+
+        lockedAxis = nil
+        return perEvent
     }
 }
 

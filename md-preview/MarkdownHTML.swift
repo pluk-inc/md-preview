@@ -7,6 +7,18 @@ import Foundation
 import Markdown
 
 enum MarkdownHTML {
+    /// How the heavy KaTeX/Mermaid/Shiki bundles are delivered.
+    /// - inline: bundles are embedded as `<script>…</script>` blocks in the
+    ///   HTML head. Self-contained, slow first-paint, used by Quick Look
+    ///   (which delivers HTML as a single QLPreviewReply payload).
+    /// - lazy: only small init stubs are inline; the heavy vendor JS is
+    ///   fetched via `md-asset:///__vendor/<file>` after first paint, so the
+    ///   document text is visible while the bundles are still parsing.
+    enum VendorLoading {
+        case inline
+        case lazy
+    }
+
     struct RenderedHTML {
         let html: String
         let articleHTML: String
@@ -17,15 +29,18 @@ enum MarkdownHTML {
 
     static func makeHTML(from markdown: String,
                          allowsScroll: Bool = false,
-                         assetBaseHref: String? = nil) -> String {
+                         assetBaseHref: String? = nil,
+                         vendorLoading: VendorLoading = .inline) -> String {
         render(markdown: markdown,
                allowsScroll: allowsScroll,
-               assetBaseHref: assetBaseHref).html
+               assetBaseHref: assetBaseHref,
+               vendorLoading: vendorLoading).html
     }
 
     static func render(markdown: String,
                        allowsScroll: Bool = false,
-                       assetBaseHref: String? = nil) -> RenderedHTML {
+                       assetBaseHref: String? = nil,
+                       vendorLoading: VendorLoading = .inline) -> RenderedHTML {
         let body = MarkdownFrontmatter.split(markdown).body
         let footnotes = extractFootnotes(from: body)
         let math = extractMath(from: footnotes.markdown)
@@ -46,6 +61,9 @@ enum MarkdownHTML {
         </style>
         """ : ""
         let baseTag = assetBaseHref.map { "<base href=\"\($0)\">" } ?? ""
+        let mathBlock = containsMath ? katexHead(mode: vendorLoading) : ""
+        let mermaidBlock = containsMermaid ? mermaidScript(mode: vendorLoading) : ""
+        let shikiBlock = containsHighlightedCode ? shikiScript(mode: vendorLoading) : ""
         let html = """
         <!DOCTYPE html>
         <html>
@@ -56,9 +74,9 @@ enum MarkdownHTML {
         <style>\(stylesheet)</style>
         \(scrollOverride)
         \(hostBridgeScript)
-        \(containsMath ? katexHead : "")
-        \(containsMermaid ? mermaidScript : "")
-        \(containsHighlightedCode ? shikiScript : "")
+        \(mathBlock)
+        \(mermaidBlock)
+        \(shikiBlock)
         </head>
         <body>
         <article class="markdown-body">
@@ -669,6 +687,55 @@ enum MarkdownHTML {
 
         window.MdPreviewHost = { pushHeight, measureHeight };
 
+        // Vendor lazy-load helpers. rAF is paused while the WKWebView is
+        // offscreen (e.g. during the launch-time warmup before the window
+        // becomes visible), so afterPaint also falls back to setTimeout(50).
+        window.MdPreviewLazy = {
+            afterPaint(cb) {
+                function tick() {
+                    let fired = false;
+                    function fire() { if (!fired) { fired = true; cb(); } }
+                    requestAnimationFrame(() => requestAnimationFrame(fire));
+                    setTimeout(fire, 50);
+                }
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', tick, { once: true });
+                } else {
+                    tick();
+                }
+            },
+            loadScript(src) {
+                return new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.onload = () => resolve();
+                    s.onerror = () => reject(new Error('failed: ' + src));
+                    s.src = src;
+                    document.head.appendChild(s);
+                });
+            },
+            // Wires up a renderer whose vendor JS is loaded after first paint.
+            // - registers a reapplier that gates on `loaded`, so fast-path
+            //   updates don't fire the renderer before its bundle has arrived
+            // - on first paint, fetches `src` (and any `extras` after) and
+            //   calls `run`
+            lazyRenderer({ src, extras, run }) {
+                let loaded = false;
+                if (window.MdPreview && window.MdPreview.registerReapplier) {
+                    window.MdPreview.registerReapplier(() => { if (loaded) run(); });
+                }
+                this.afterPaint(async () => {
+                    try {
+                        await this.loadScript(src);
+                        loaded = true;
+                        run();
+                        if (extras) {
+                            for (const e of extras) this.loadScript(e).catch(() => {});
+                        }
+                    } catch (e) {}
+                });
+            }
+        };
+
         // Incremental-update entry point. Each renderer (KaTeX/Mermaid/Shiki)
         // registers an idempotent reapplier that re-processes the current
         // article. Same-flag re-renders skip the WKWebView reload entirely.
@@ -681,8 +748,10 @@ enum MarkdownHTML {
             const article = document.querySelector('.markdown-body');
             if (!article) return;
             article.innerHTML = articleHTML;
-            for (const fn of reappliers) {
-                try { fn(); } catch (e) { /* one bad apple shouldn't block others */ }
+            if (articleHTML) {
+                for (const fn of reappliers) {
+                    try { fn(); } catch (e) { /* one bad apple shouldn't block others */ }
+                }
             }
             pushHeight();
         };
@@ -710,49 +779,53 @@ enum MarkdownHTML {
     </script>
     """
 
-    private static let katexHead: String = {
-        guard let js = bundledVendorResource("katex.min", ext: "js", subdir: "Vendor/KaTeX") else {
-            return """
-            <script>
-            window.addEventListener('load', () => {
-                document.querySelectorAll('.math').forEach((node) => {
-                    node.classList.add('math-error');
-                    node.textContent = 'KaTeX renderer is unavailable.\\n\\n' + node.textContent;
+    private static let katexFallbackScript = """
+    <script>
+    window.addEventListener('load', () => {
+        document.querySelectorAll('.math').forEach((node) => {
+            node.classList.add('math-error');
+            node.textContent = 'KaTeX renderer is unavailable.\\n\\n' + node.textContent;
+        });
+    });
+    </script>
+    """
+
+    /// JS body of `function renderMath()`. Shared between inline and lazy
+    /// modes — only the surrounding wiring (immediate run vs. deferred-on-load)
+    /// differs.
+    private static let katexRenderMathBody = """
+    function renderMath() {
+        document.querySelectorAll('.math').forEach((el) => {
+            if (el.dataset.mathDone === '1') return;
+            const tex = el.textContent;
+            const display = el.classList.contains('math-display');
+            try {
+                katex.render(tex, el, {
+                    displayMode: display,
+                    throwOnError: false,
+                    output: 'htmlAndMathml'
                 });
-            });
-            </script>
-            """
+                el.dataset.mathDone = '1';
+            } catch (err) {
+                el.classList.add('math-error');
+                el.textContent = String((err && err.message) || err);
+                el.dataset.mathDone = '1';
+            }
+        });
+        window.dispatchEvent(new Event('md-preview-math-rendered'));
+    }
+    """
+
+    private static func katexHead(mode: VendorLoading) -> String {
+        guard bundledVendorURL("katex.min", ext: "js", subdir: "Vendor/KaTeX") != nil else {
+            return katexFallbackScript
         }
         let css = bundledVendorResource("katex.min", ext: "css", subdir: "Vendor/KaTeX") ?? ""
-        let copyTex = bundledVendorResource("copy-tex.min", ext: "js", subdir: "Vendor/KaTeX") ?? ""
-        let safeJS = js.replacingOccurrences(of: "</script", with: "<\\/script")
-        let safeCopyTex = copyTex.replacingOccurrences(of: "</script", with: "<\\/script")
 
-        return """
-        <style>\(css)</style>
-        <script>\(safeJS)</script>
+        let initScript = """
         <script>
         (function() {
-            function renderMath() {
-                document.querySelectorAll('.math').forEach((el) => {
-                    if (el.dataset.mathDone === '1') return;
-                    const tex = el.textContent;
-                    const display = el.classList.contains('math-display');
-                    try {
-                        katex.render(tex, el, {
-                            displayMode: display,
-                            throwOnError: false,
-                            output: 'htmlAndMathml'
-                        });
-                        el.dataset.mathDone = '1';
-                    } catch (err) {
-                        el.classList.add('math-error');
-                        el.textContent = String((err && err.message) || err);
-                        el.dataset.mathDone = '1';
-                    }
-                });
-                window.dispatchEvent(new Event('md-preview-math-rendered'));
-            }
+            \(katexRenderMathBody)
             if (window.MdPreview && window.MdPreview.registerReapplier) {
                 window.MdPreview.registerReapplier(renderMath);
             }
@@ -763,24 +836,59 @@ enum MarkdownHTML {
             }
         })();
         </script>
-        \(safeCopyTex.isEmpty ? "" : "<script>\(safeCopyTex)</script>")
         """
-    }()
+
+        switch mode {
+        case .inline:
+            let js = bundledVendorResource("katex.min", ext: "js", subdir: "Vendor/KaTeX") ?? ""
+            let copyTex = bundledVendorResource("copy-tex.min", ext: "js", subdir: "Vendor/KaTeX") ?? ""
+            let safeJS = js.replacingOccurrences(of: "</script", with: "<\\/script")
+            let safeCopyTex = copyTex.replacingOccurrences(of: "</script", with: "<\\/script")
+            return """
+            <style>\(css)</style>
+            <script>\(safeJS)</script>
+            \(initScript)
+            \(safeCopyTex.isEmpty ? "" : "<script>\(safeCopyTex)</script>")
+            """
+        case .lazy:
+            // CSS stays inline so layout is stable while KaTeX JS streams in.
+            return """
+            <style>\(css)</style>
+            <script>
+            (function() {
+                \(katexRenderMathBody)
+                window.MdPreviewLazy.lazyRenderer({
+                    src: '\(MarkdownAssetScheme.vendorURL("katex.min.js"))',
+                    extras: ['\(MarkdownAssetScheme.vendorURL("copy-tex.min.js"))'],
+                    run: renderMath,
+                });
+            })();
+            </script>
+            """
+        }
+    }
+
+    private static func bundledVendorURL(_ name: String,
+                                         ext: String,
+                                         subdir: String) -> URL? {
+        let bundles = [Bundle.main, Bundle(for: MarkdownHTMLBundleToken.self)]
+        for bundle in bundles {
+            if let url = bundle.url(forResource: name, withExtension: ext, subdirectory: subdir) {
+                return url
+            }
+            if let url = bundle.url(forResource: name, withExtension: ext) {
+                return url
+            }
+        }
+        return nil
+    }
 
     private static func bundledVendorResource(_ name: String,
                                               ext: String,
                                               subdir: String) -> String? {
-        let bundles = [Bundle.main, Bundle(for: MarkdownHTMLBundleToken.self)]
-        for bundle in bundles {
-            let urls = [
-                bundle.url(forResource: name, withExtension: ext, subdirectory: subdir),
-                bundle.url(forResource: name, withExtension: ext),
-            ]
-            for url in urls.compactMap({ $0 }) {
-                if let s = try? String(contentsOf: url, encoding: .utf8) { return s }
-            }
+        bundledVendorURL(name, ext: ext, subdir: subdir).flatMap {
+            try? String(contentsOf: $0, encoding: .utf8)
         }
-        return nil
     }
 
     private static func replaceMatches(of regex: NSRegularExpression,
@@ -870,25 +978,23 @@ enum MarkdownHTML {
         return MermaidRenderResult(html: rendered, containsMermaid: true)
     }
 
-    private static let mermaidScript: String = {
-        guard let script = bundledVendorResource("mermaid.min", ext: "js", subdir: "Vendor/Mermaid") else {
-            return """
-            <script>
-            window.addEventListener('load', () => {
-                document.querySelectorAll('.mermaid').forEach((node) => {
-                    node.classList.add('mermaid-error');
-                    node.textContent = 'Mermaid renderer is unavailable.\\n\\n' + node.textContent;
-                });
-            });
-            </script>
-            """
-        }
-        let safeScript = script.replacingOccurrences(of: "</script", with: "<\\/script")
-        return """
-        <script>
-        \(safeScript)
+    private static let mermaidFallbackScript = """
+    <script>
+    window.addEventListener('load', () => {
+        document.querySelectorAll('.mermaid').forEach((node) => {
+            node.classList.add('mermaid-error');
+            node.textContent = 'Mermaid renderer is unavailable.\\n\\n' + node.textContent;
+        });
+    });
+    </script>
+    """
 
-        (() => {
+    /// Mermaid wiring IIFE. Assumes the `mermaid` global has been (or will
+    /// be) defined by the time DOMContentLoaded fires — true for both inline
+    /// vendor `<script>` and `<script defer src=...>` delivery, since `defer`
+    /// scripts run before DOMContentLoaded.
+    private static let mermaidInitWiring = """
+    (() => {
             const states = new WeakMap();
             const queue = [];
             let draining = false;
@@ -1115,23 +1221,52 @@ enum MarkdownHTML {
                 figures.forEach((f) => io.observe(f));
             }
 
-            if (window.MdPreview && window.MdPreview.registerReapplier) {
-                window.MdPreview.registerReapplier(bootstrap);
-            }
+            return { bootstrap };
+        })()
+    """
 
-            if (window.MdPreview && window.MdPreview.registerReapplier) {
-                window.MdPreview.registerReapplier(bootstrap);
-            }
+    private static func mermaidScript(mode: VendorLoading) -> String {
+        guard bundledVendorURL("mermaid.min", ext: "js", subdir: "Vendor/Mermaid") != nil else {
+            return mermaidFallbackScript
+        }
+        switch mode {
+        case .inline:
+            let vendorJS = bundledVendorResource("mermaid.min", ext: "js", subdir: "Vendor/Mermaid") ?? ""
+            let safeVendor = vendorJS.replacingOccurrences(of: "</script", with: "<\\/script")
+            return """
+            <script>
+            \(safeVendor)
 
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
-            } else {
-                bootstrap();
-            }
-        })();
-        </script>
-        """
-    }()
+            (() => {
+                const { bootstrap } = \(mermaidInitWiring);
+                if (window.MdPreview && window.MdPreview.registerReapplier) {
+                    window.MdPreview.registerReapplier(bootstrap);
+                }
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+                } else {
+                    bootstrap();
+                }
+            })();
+            </script>
+            """
+        case .lazy:
+            return """
+            <script>
+            (() => {
+                let mm = null;
+                window.MdPreviewLazy.lazyRenderer({
+                    src: '\(MarkdownAssetScheme.vendorURL("mermaid.min.js"))',
+                    run: () => {
+                        mm = mm || \(mermaidInitWiring);
+                        mm.bootstrap();
+                    },
+                });
+            })();
+            </script>
+            """
+        }
+    }
 
     // MARK: - Syntax highlighting (Shiki)
 
@@ -1154,51 +1289,72 @@ enum MarkdownHTML {
         return ShikiRenderResult(html: html, containsHighlightedCode: firstMatch != nil)
     }
 
-    private static let shikiScript: String = {
-        guard let script = bundledVendorResource("shiki.bundle", ext: "js", subdir: "Vendor/Shiki") else {
+    private static let shikiFallbackScript = """
+    <script>
+    window.addEventListener('load', () => {
+        document.querySelectorAll('pre > code[class*="language-"]').forEach((node) => {
+            const pre = node.parentElement;
+            if (!pre || node.classList.contains('language-mermaid')) return;
+            pre.classList.add('shiki-error');
+            pre.setAttribute('data-shiki-error', 'Shiki renderer is unavailable.');
+        });
+    });
+    </script>
+    """
+
+    /// Definition of `async function runShiki()`. Shared by both modes;
+    /// the mode wrapper adds the trigger (immediate vs post-paint).
+    private static let shikiRunShikiBody = """
+    async function runShiki() {
+        if (!window.MdPreviewShiki || !window.MdPreviewShiki.renderAll) return;
+        try {
+            await window.MdPreviewShiki.renderAll(document);
+            window.dispatchEvent(new Event('md-preview-shiki-rendered'));
+        } catch (error) {
+            document.querySelectorAll('pre > code[class*="language-"]').forEach((node) => {
+                const pre = node.parentElement;
+                if (!pre || node.classList.contains('language-mermaid')) return;
+                pre.classList.add('shiki-error');
+                pre.setAttribute('data-shiki-error', String((error && error.message) || error));
+            });
+            console.error('Shiki rendering failed', error);
+        }
+    }
+    """
+
+    private static func shikiScript(mode: VendorLoading) -> String {
+        guard bundledVendorURL("shiki.bundle", ext: "js", subdir: "Vendor/Shiki") != nil else {
+            return shikiFallbackScript
+        }
+        switch mode {
+        case .inline:
+            let vendorJS = bundledVendorResource("shiki.bundle", ext: "js", subdir: "Vendor/Shiki") ?? ""
+            let safeVendor = vendorJS.replacingOccurrences(of: "</script", with: "<\\/script")
             return """
             <script>
-            window.addEventListener('load', () => {
-                document.querySelectorAll('pre > code[class*="language-"]').forEach((node) => {
-                    const pre = node.parentElement;
-                    if (!pre || node.classList.contains('language-mermaid')) return;
-                    pre.classList.add('shiki-error');
-                    pre.setAttribute('data-shiki-error', 'Shiki renderer is unavailable.');
+            \(safeVendor)
+
+            \(shikiRunShikiBody)
+            if (window.MdPreview && window.MdPreview.registerReapplier) {
+                window.MdPreview.registerReapplier(() => { runShiki(); });
+            }
+            window.addEventListener('load', runShiki);
+            </script>
+            """
+        case .lazy:
+            return """
+            <script>
+            (() => {
+                \(shikiRunShikiBody)
+                window.MdPreviewLazy.lazyRenderer({
+                    src: '\(MarkdownAssetScheme.vendorURL("shiki.bundle.js"))',
+                    run: runShiki,
                 });
-            });
+            })();
             </script>
             """
         }
-        let safeScript = script.replacingOccurrences(of: "</script", with: "<\\/script")
-        return """
-        <script>
-        \(safeScript)
-
-        async function runShiki() {
-            if (!window.MdPreviewShiki || !window.MdPreviewShiki.renderAll) return;
-            try {
-                await window.MdPreviewShiki.renderAll(document);
-                window.dispatchEvent(new Event('md-preview-shiki-rendered'));
-            } catch (error) {
-                document.querySelectorAll('pre > code[class*="language-"]').forEach((node) => {
-                    const pre = node.parentElement;
-                    if (!pre || node.classList.contains('language-mermaid')) return;
-                    pre.classList.add('shiki-error');
-                    pre.setAttribute('data-shiki-error', String((error && error.message) || error));
-                });
-                console.error('Shiki rendering failed', error);
-            }
-        }
-        if (window.MdPreview && window.MdPreview.registerReapplier) {
-            // Fire-and-forget; the prior content's <pre> nodes are gone (the
-            // article innerHTML was just replaced), so this only highlights
-            // the new blocks.
-            window.MdPreview.registerReapplier(() => { runShiki(); });
-        }
-        window.addEventListener('load', runShiki);
-        </script>
-        """
-    }()
+    }
 
     private final class MarkdownHTMLBundleToken {}
 
@@ -1371,6 +1527,27 @@ enum MarkdownHTML {
         border-radius: 15px;
         overflow-x: auto;
         line-height: 1.45;
+    }
+    pre::-webkit-scrollbar {
+        display: block;
+        height: 10px;
+        width: 0;
+    }
+    pre::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    pre::-webkit-scrollbar-thumb {
+        background-color: color-mix(in srgb, var(--text) 22%, transparent);
+        border-radius: 10px;
+        border: 3px solid transparent;
+        background-clip: padding-box;
+    }
+    pre:hover::-webkit-scrollbar-thumb {
+        background-color: color-mix(in srgb, var(--text) 38%, transparent);
+    }
+    pre::-webkit-scrollbar-thumb:hover,
+    pre::-webkit-scrollbar-thumb:active {
+        background-color: color-mix(in srgb, var(--text) 55%, transparent);
     }
     pre code {
         padding: 0;

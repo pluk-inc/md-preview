@@ -88,9 +88,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     }
 
     private func present(url: URL) {
+        // Switching to a different file blanks the preview so the previous
+        // doc doesn't linger on screen during sheet dismissal + load.
+        let isFileSwitch = currentFileURL != nil && currentFileURL != url
         currentFileURL = url
         currentMarkdown = nil
         window.title = url.lastPathComponent
+        if isFileSwitch {
+            (window.contentViewController as? MainSplitViewController)?.clearContent()
+        }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
