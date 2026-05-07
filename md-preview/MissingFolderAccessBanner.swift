@@ -15,8 +15,8 @@ final class MissingFolderAccessBanner: NSView {
 
     private let messageLabel = NSTextField(labelWithString: "")
     private let allowButton = NSButton(title: "Allow Access", target: nil, action: nil)
-    private let topSeparator = NSBox()
-    private let bottomSeparator = NSBox()
+    private let topSeparator = HairlineSeparator()
+    private let bottomSeparator = HairlineSeparator()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -71,12 +71,10 @@ final class MissingFolderAccessBanner: NSView {
             return false
         }()
 
-        topSeparator.boxType = .separator
         topSeparator.translatesAutoresizingMaskIntoConstraints = false
         topSeparator.isHidden = !needsManualSeparators
         addSubview(topSeparator)
 
-        bottomSeparator.boxType = .separator
         bottomSeparator.translatesAutoresizingMaskIntoConstraints = false
         bottomSeparator.isHidden = !needsManualSeparators
         addSubview(bottomSeparator)

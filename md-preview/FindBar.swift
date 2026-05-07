@@ -22,7 +22,7 @@ final class FindBar: NSView {
     private let countLabel = NSTextField(labelWithString: "")
     private let navigationControl = NSSegmentedControl()
     private let doneButton = NSButton(title: "Done", target: nil, action: nil)
-    private let bottomSeparator = NSBox()
+    private let bottomSeparator = HairlineSeparator()
 
     private enum NavigationSegment: Int {
         case previous = 0
@@ -85,12 +85,15 @@ final class FindBar: NSView {
         // macOS 26 dropped the system-drawn separators around titlebar
         // accessories, so we draw our own bottom rule. macOS 15 still draws
         // them, so hiding ours avoids a doubled line there.
+        // NSBox(.separator) inside a bottom titlebar accessory triggers a macOS
+        // 26 layout regression that bypasses the window's contentMinSize and
+        // collapses the window to the toolbar's natural minimum width — use a
+        // plain NSView with a 1pt separator-colored layer instead.
         let needsManualSeparator: Bool = {
             if #available(macOS 26.0, *) { return true }
             return false
         }()
 
-        bottomSeparator.boxType = .separator
         bottomSeparator.translatesAutoresizingMaskIntoConstraints = false
         bottomSeparator.isHidden = !needsManualSeparator
         addSubview(bottomSeparator)
