@@ -11,7 +11,7 @@ import WebKit
 /// parent folder. The host process holds the security-scoped extension for
 /// the folder, so FileManager reads succeed even though the WKWebView's
 /// content process is sandboxed separately.
-final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
+nonisolated final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
 
     nonisolated static let scheme = "md-asset"
     /// URL path prefix reserved for app-bundled vendor scripts (lazy-loaded).
@@ -28,7 +28,7 @@ final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
     /// process, and WKWebView's NSURLCache doesn't cover custom-scheme
     /// responses, so without this cache every `<script src>` re-reads the
     /// 2.5 MB Shiki / 3 MB Mermaid blob from disk.
-    private static let vendorDataCache = NSCache<NSURL, NSData>()
+    private nonisolated static let vendorDataCache = VendorDataCache()
 
     private let queue = DispatchQueue(label: "doc.md-preview.asset-scheme", qos: .userInitiated)
     private let lock = NSLock()
@@ -46,7 +46,7 @@ final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
 
     /// Resolves an `md-asset://…` URL against `base`, rejecting path-traversal
     /// that escapes the granted folder. Returns `nil` for malformed input.
-    static func resolve(_ assetURL: URL, against base: URL) -> URL? {
+    nonisolated static func resolve(_ assetURL: URL, against base: URL) -> URL? {
         var path = assetURL.path
         while path.hasPrefix("/") { path.removeFirst() }
         guard !path.isEmpty else { return nil }
@@ -63,7 +63,7 @@ final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
     /// Resolves a `/__vendor/<file>` URL to a file inside the app bundle's
     /// `Vendor/<Renderer>/` subfolder. Returns `nil` if the filename isn't on
     /// the allow-list — keeps the scheme from leaking other bundle resources.
-    static func resolveVendor(_ url: URL) -> URL? {
+    nonisolated static func resolveVendor(_ url: URL) -> URL? {
         let path = url.path
         guard path.hasPrefix(vendorPathPrefix) else { return nil }
         let filename = String(path.dropFirst(vendorPathPrefix.count))
@@ -120,20 +120,20 @@ final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
         }
     }
 
-    private static func serve(file resolved: URL,
-                              requestURL: URL,
-                              task: any WKURLSchemeTask,
-                              cacheable: Bool) {
+    private nonisolated static func serve(file resolved: URL,
+                                          requestURL: URL,
+                                          task: any WKURLSchemeTask,
+                                          cacheable: Bool) {
         let data: Data
-        if cacheable, let cached = vendorDataCache.object(forKey: resolved as NSURL) {
-            data = cached as Data
+        if cacheable, let cached = vendorDataCache.data(for: resolved) {
+            data = cached
         } else {
             guard let read = try? Data(contentsOf: resolved) else {
                 task.didFailWithError(URLError(.fileDoesNotExist))
                 return
             }
             if cacheable {
-                vendorDataCache.setObject(read as NSData, forKey: resolved as NSURL)
+                vendorDataCache.set(read, for: resolved)
             }
             data = read
         }
@@ -158,11 +158,30 @@ final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
 
+    // `WKURLSchemeTask` is an Objective-C protocol without useful Sendable
+    // annotations. The handler immediately moves work onto its private serial
+    // queue and reports results for the same task from there, which matches
+    // WKURLSchemeHandler's callback-style contract.
     private struct TaskWrapper: @unchecked Sendable {
         let task: any WKURLSchemeTask
     }
 
-    private static func mimeType(for url: URL) -> String {
+    // `NSCache` is internally synchronized but is not annotated Sendable by
+    // Foundation. Keep that unchecked assumption behind a tiny value API so the
+    // rest of the scheme handler never shares the cache object directly.
+    private final class VendorDataCache: @unchecked Sendable {
+        private let cache = NSCache<NSURL, NSData>()
+
+        nonisolated func data(for url: URL) -> Data? {
+            cache.object(forKey: url as NSURL) as Data?
+        }
+
+        nonisolated func set(_ data: Data, for url: URL) {
+            cache.setObject(data as NSData, forKey: url as NSURL)
+        }
+    }
+
+    private nonisolated static func mimeType(for url: URL) -> String {
         UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
             ?? "application/octet-stream"
     }
