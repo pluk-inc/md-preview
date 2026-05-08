@@ -24,6 +24,7 @@ enum MarkdownHTML {
         let articleHTML: String
         let containsMath: Bool
         let containsMermaid: Bool
+        let containsCode: Bool
     }
 
     static func makeHTML(from markdown: String,
@@ -52,6 +53,7 @@ enum MarkdownHTML {
         let bodyHTML = injectRTLDirection(in: headingsHTML)
         let containsMath = mathResult.containsMath || footnoteDefinitions.containsMath
         let containsMermaid = mermaidResult.containsMermaid || footnoteDefinitions.containsMermaid
+        let containsCode = detectHighlightableCode(in: bodyHTML)
         let scrollOverride = allowsScroll ? """
         <style>
         html, body { overflow: auto !important; }
@@ -60,6 +62,7 @@ enum MarkdownHTML {
         let baseTag = assetBaseHref.map { "<base href=\"\($0)\">" } ?? ""
         let mathBlock = containsMath ? katexHead(mode: vendorLoading) : ""
         let mermaidBlock = containsMermaid ? mermaidScript(mode: vendorLoading) : ""
+        let highlightBlock = containsCode ? highlightHead(mode: vendorLoading) : ""
         let html = """
         <!DOCTYPE html>
         <html>
@@ -72,6 +75,7 @@ enum MarkdownHTML {
         \(hostBridgeScript)
         \(mathBlock)
         \(mermaidBlock)
+        \(highlightBlock)
         </head>
         <body>
         <article class="markdown-body">
@@ -84,7 +88,8 @@ enum MarkdownHTML {
             html: html,
             articleHTML: bodyHTML,
             containsMath: containsMath,
-            containsMermaid: containsMermaid
+            containsMermaid: containsMermaid,
+            containsCode: containsCode
         )
     }
 
@@ -646,6 +651,36 @@ enum MarkdownHTML {
             } catch (e) { return () => {}; }
         })();
 
+        // Perf instrumentation. Each entry is timestamped relative to script
+        // parse (`t0`) and routed through the host bridge so it lands in
+        // Xcode's console during development. The post() shim no-ops when
+        // the bridge isn't installed (Quick Look, isolated test page).
+        const perfT0 = (typeof performance !== 'undefined' && performance.now)
+            ? performance.now() : 0;
+        function perfNow() {
+            return (typeof performance !== 'undefined' && performance.now)
+                ? performance.now() - perfT0 : 0;
+        }
+        function perfLog(label, detail) {
+            const dt = perfNow().toFixed(1);
+            const msg = '[mdp-perf +' + dt + 'ms] ' + label
+                + (detail !== undefined ? ' ' + detail : '');
+            try { post({ kind: 'log', message: msg }); } catch (e) {}
+        }
+        window.MdPreviewPerf = { now: perfNow, log: perfLog, t0: perfT0 };
+        perfLog('script eval');
+
+        if (typeof PerformanceObserver === 'function') {
+            try {
+                const po = new PerformanceObserver((list) => {
+                    for (const entry of list.getEntries()) {
+                        perfLog('paint:' + entry.name, entry.startTime.toFixed(1) + 'ms');
+                    }
+                });
+                po.observe({ type: 'paint', buffered: true });
+            } catch (e) {}
+        }
+
         function measureHeight() {
             const body = document.body;
             const article = document.querySelector('.markdown-body');
@@ -681,9 +716,15 @@ enum MarkdownHTML {
             afterPaint(cb) {
                 function tick() {
                     let fired = false;
-                    function fire() { if (!fired) { fired = true; cb(); } }
-                    requestAnimationFrame(() => requestAnimationFrame(fire));
-                    setTimeout(fire, 50);
+                    function fire(via) {
+                        if (!fired) {
+                            fired = true;
+                            perfLog('afterPaint fire', via);
+                            cb();
+                        }
+                    }
+                    requestAnimationFrame(() => requestAnimationFrame(() => fire('rAF')));
+                    setTimeout(() => fire('timeout'), 50);
                 }
                 if (document.readyState === 'loading') {
                     document.addEventListener('DOMContentLoaded', tick, { once: true });
@@ -693,8 +734,13 @@ enum MarkdownHTML {
             },
             loadScript(src) {
                 return new Promise((resolve, reject) => {
+                    const tStart = perfNow();
+                    perfLog('script append', src);
                     const s = document.createElement('script');
-                    s.onload = () => resolve();
+                    s.onload = () => {
+                        perfLog('script onload', src + ' (+' + (perfNow() - tStart).toFixed(1) + 'ms)');
+                        resolve();
+                    };
                     s.onerror = () => reject(new Error('failed: ' + src));
                     s.src = src;
                     document.head.appendChild(s);
@@ -734,16 +780,19 @@ enum MarkdownHTML {
         window.MdPreview.update = (articleHTML) => {
             const article = document.querySelector('.markdown-body');
             if (!article) return;
+            const tStart = perfNow();
             article.innerHTML = articleHTML;
             if (articleHTML) {
                 for (const fn of reappliers) {
                     try { fn(); } catch (e) { /* one bad apple shouldn't block others */ }
                 }
             }
+            perfLog('MdPreview.update', '(+' + (perfNow() - tStart).toFixed(1) + 'ms)');
             pushHeight();
         };
 
         function start() {
+            perfLog('start (DOM ready)');
             pushHeight();
             try {
                 const ro = new ResizeObserver(pushHeight);
@@ -927,6 +976,109 @@ enum MarkdownHTML {
             }
         }
         return out
+    }
+
+    // MARK: - Code highlighting (highlight.js)
+
+    // Matches `<pre><code class="language-XXX">` for any language other than
+    // mermaid, since mermaid blocks have already been transformed into
+    // <figure class="mermaid-figure"> by the time this runs.
+    private static let highlightableCodeRegex: NSRegularExpression = {
+        // swiftlint:disable:next force_try
+        try! NSRegularExpression(
+            pattern: #"<pre><code class="language-(?!mermaid")[a-zA-Z0-9_+#-]+""#
+        )
+    }()
+
+    private static func detectHighlightableCode(in html: String) -> Bool {
+        let nsHtml = html as NSString
+        let range = NSRange(location: 0, length: nsHtml.length)
+        return highlightableCodeRegex.firstMatch(in: html, range: range) != nil
+    }
+
+    private static let highlightFallbackScript = ""
+
+    /// JS body of `function highlightAll()`. Walks every untouched
+    /// `pre code[class*="language-"]` and runs `hljs.highlightElement` on it,
+    /// yielding via rAF every ~8 ms so the main thread is never pinned for
+    /// more than one frame even on docs with many code blocks.
+    private static let highlightAllBody = """
+    function highlightAll() {
+        if (typeof hljs === 'undefined') return;
+        const blocks = Array.prototype.slice.call(
+            document.querySelectorAll('pre code[class*="language-"]')
+        ).filter((b) => {
+            if (b.dataset.hljsDone === '1') return false;
+            return !b.classList.contains('language-mermaid');
+        });
+        if (window.MdPreviewPerf) MdPreviewPerf.log('hljs highlightAll start', blocks.length + ' blocks');
+        let i = 0;
+        function step() {
+            const sliceStart = (window.MdPreviewPerf ? MdPreviewPerf.now() : 0);
+            while (i < blocks.length) {
+                const block = blocks[i++];
+                try { hljs.highlightElement(block); } catch (e) {}
+                block.dataset.hljsDone = '1';
+                if (window.MdPreviewPerf
+                    && MdPreviewPerf.now() - sliceStart > 8) break;
+            }
+            if (i < blocks.length) {
+                requestAnimationFrame(step);
+            } else {
+                window.dispatchEvent(new Event('md-preview-hljs-rendered'));
+                if (window.MdPreviewPerf) MdPreviewPerf.log('hljs all done');
+            }
+        }
+        requestAnimationFrame(step);
+    }
+    """
+
+    private static func highlightHead(mode: VendorLoading) -> String {
+        guard bundledVendorURL("highlight.min", ext: "js", subdir: "Vendor/Highlight") != nil else {
+            return highlightFallbackScript
+        }
+        let css = bundledVendorResource("highlight.min", ext: "css", subdir: "Vendor/Highlight") ?? ""
+
+        let initScript = """
+        <script>
+        (function() {
+            \(highlightAllBody)
+            if (window.MdPreview && window.MdPreview.registerReapplier) {
+                window.MdPreview.registerReapplier(highlightAll);
+            }
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', highlightAll, { once: true });
+            } else {
+                highlightAll();
+            }
+        })();
+        </script>
+        """
+
+        switch mode {
+        case .inline:
+            let js = bundledVendorResource("highlight.min", ext: "js", subdir: "Vendor/Highlight") ?? ""
+            let safeJS = js.replacingOccurrences(of: "</script", with: "<\\/script")
+            return """
+            <style>\(css)</style>
+            <script>\(safeJS)</script>
+            \(initScript)
+            """
+        case .lazy:
+            // CSS stays inline so layout doesn't shift when the JS arrives.
+            return """
+            <style>\(css)</style>
+            <script>
+            (function() {
+                \(highlightAllBody)
+                window.MdPreviewLazy.lazyRenderer({
+                    src: '\(MarkdownAssetScheme.vendorURL("highlight.min.js"))',
+                    run: highlightAll,
+                });
+            })();
+            </script>
+            """
+        }
     }
 
     // MARK: - Mermaid
