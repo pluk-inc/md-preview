@@ -70,9 +70,10 @@ nonisolated final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
 
         // Allow-list mapping: <url filename> -> (resource name, ext, subdir)
         let mapping: [String: (name: String, ext: String, subdir: String)] = [
-            "katex.min.js":    ("katex.min",    "js",  "Vendor/KaTeX"),
-            "copy-tex.min.js": ("copy-tex.min", "js",  "Vendor/KaTeX"),
-            "mermaid.min.js":  ("mermaid.min",  "js",  "Vendor/Mermaid"),
+            "katex.min.js":     ("katex.min",     "js",  "Vendor/KaTeX"),
+            "copy-tex.min.js":  ("copy-tex.min",  "js",  "Vendor/KaTeX"),
+            "mermaid.min.js":   ("mermaid.min",   "js",  "Vendor/Mermaid"),
+            "highlight.min.js": ("highlight.min", "js",  "Vendor/Highlight"),
         ]
         guard let entry = mapping[filename] else { return nil }
 

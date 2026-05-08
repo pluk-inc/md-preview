@@ -4,7 +4,13 @@
 //
 
 import Cocoa
+import os
 import WebKit
+
+extension Logger {
+    private static let subsystem = Bundle.main.bundleIdentifier ?? "doc.md-preview"
+    static let perf = Logger(subsystem: subsystem, category: "perf")
+}
 
 enum SearchMode {
     case contains
@@ -32,11 +38,14 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     private struct RendererFingerprint: Equatable {
         let math: Bool
         let mermaid: Bool
+        let code: Bool
 
         /// True if every renderer the new doc needs is already loaded — the
         /// gate for the fast-path innerHTML swap.
         func covers(_ other: RendererFingerprint) -> Bool {
-            (!other.math || math) && (!other.mermaid || mermaid)
+            (!other.math || math)
+                && (!other.mermaid || mermaid)
+                && (!other.code || code)
         }
     }
     private var loadedFingerprint: RendererFingerprint?
@@ -66,9 +75,9 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         }
     }
 
-    /// Synthetic markdown that flips both renderer flags (math + mermaid).
-    /// Loaded into the WebView at launch so the heavy vendor JS is parsed
-    /// and executed before the user picks a real file. Every later
+    /// Synthetic markdown that flips every renderer flag (math + mermaid +
+    /// code). Loaded into the WebView at launch so the heavy vendor JS is
+    /// parsed and executed before the user picks a real file. Every later
     /// `display()` call then hits the fast-path (innerHTML swap + reapplier
     /// sweep) instead of paying for a full reload.
     private static let warmupMarkdown = """
@@ -76,6 +85,10 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
 
     ```mermaid
     graph TD; A-->B
+    ```
+
+    ```typescript
+    let x: string = 'warmup';
     ```
     """
 
@@ -87,7 +100,8 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
                                            vendorLoading: .lazy)
         loadedFingerprint = RendererFingerprint(
             math: rendered.containsMath,
-            mermaid: rendered.containsMermaid
+            mermaid: rendered.containsMermaid,
+            code: rendered.containsCode
         )
         webView.loadHTMLString(rendered.html, baseURL: nil)
     }
@@ -119,7 +133,8 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
                                            vendorLoading: .lazy)
         let fingerprint = RendererFingerprint(
             math: rendered.containsMath,
-            mermaid: rendered.containsMermaid
+            mermaid: rendered.containsMermaid,
+            code: rendered.containsCode
         )
         currentAssetBase = assetBaseURL
 
@@ -146,6 +161,12 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         case "height":
             guard let value = dict["value"] as? NSNumber else { return }
             heightDidChange?(ceil(CGFloat(truncating: value)))
+        case "log":
+            // MdPreviewPerf.log() — debug-only; release builds never post.
+            // Routed through os.Logger so `log stream --level=debug
+            // --predicate 'subsystem == "doc.md-preview"'` surfaces them.
+            guard let message = dict["message"] as? String else { return }
+            Logger.perf.debug("\(message, privacy: .public)")
         default:
             break
         }
