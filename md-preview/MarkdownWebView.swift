@@ -7,7 +7,10 @@ import Cocoa
 import os
 import WebKit
 
-private let perfLog = Logger(subsystem: "doc.md-preview", category: "perf")
+extension Logger {
+    private static let subsystem = Bundle.main.bundleIdentifier ?? "doc.md-preview"
+    static let perf = Logger(subsystem: subsystem, category: "perf")
+}
 
 enum SearchMode {
     case contains
@@ -160,11 +163,10 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
             heightDidChange?(ceil(CGFloat(truncating: value)))
         case "log":
             // MdPreviewPerf.log() — debug-only; release builds never post.
-            // Routed through os.Logger so Console.app's `type:debug` filter
-            // and `log stream --level=debug --predicate 'subsystem == "doc.md-preview"'`
-            // both surface them.
+            // Routed through os.Logger so `log stream --level=debug
+            // --predicate 'subsystem == "doc.md-preview"'` surfaces them.
             guard let message = dict["message"] as? String else { return }
-            perfLog.debug("\(message, privacy: .public)")
+            Logger.perf.debug("\(message, privacy: .public)")
         default:
             break
         }
