@@ -636,6 +636,52 @@ enum MarkdownHTML {
         return MathRenderResult(html: rebuilt, containsMath: true)
     }
 
+    // Debug-only perf instrumentation. Routes labelled timings through the
+    // host bridge so `[mdp-perf +Xms]` entries land in Xcode's console while
+    // diagnosing load-phase regressions. Compiled out of release builds —
+    // no-op shims keep call sites unchanged.
+    #if DEBUG
+    private static let perfBridgeScript = """
+    const perfT0 = (typeof performance !== 'undefined' && performance.now)
+        ? performance.now() : 0;
+    function perfNow() {
+        return (typeof performance !== 'undefined' && performance.now)
+            ? performance.now() - perfT0 : 0;
+    }
+    function perfLog(label, detail) {
+        const dt = perfNow().toFixed(1);
+        const msg = '[mdp-perf +' + dt + 'ms] ' + label
+            + (detail !== undefined ? ' ' + detail : '');
+        try { post({ kind: 'log', message: msg }); } catch (e) {}
+    }
+    window.MdPreviewPerf = { now: perfNow, log: perfLog, t0: perfT0 };
+    perfLog('script eval');
+
+    if (typeof PerformanceObserver === 'function') {
+        try {
+            // Disconnect after FCP — paint emits at most two entries
+            // (first-paint, first-contentful-paint), no need to keep the
+            // observer pinned for the WebView's lifetime.
+            const seen = new Set();
+            const po = new PerformanceObserver((list) => {
+                for (const entry of list.getEntries()) {
+                    perfLog('paint:' + entry.name, entry.startTime.toFixed(1) + 'ms');
+                    seen.add(entry.name);
+                }
+                if (seen.has('first-contentful-paint')) po.disconnect();
+            });
+            po.observe({ type: 'paint', buffered: true });
+        } catch (e) {}
+    }
+    """
+    #else
+    private static let perfBridgeScript = """
+    function perfNow() { return 0; }
+    function perfLog() {}
+    window.MdPreviewPerf = { now: perfNow, log: perfLog };
+    """
+    #endif
+
     // Always-on host bridge: pushes the document height to the AppKit host via
     // a WKScriptMessageHandler instead of having the host poll. Quietly no-ops
     // when the bridge isn't installed (e.g. Quick Look render).
@@ -651,35 +697,7 @@ enum MarkdownHTML {
             } catch (e) { return () => {}; }
         })();
 
-        // Perf instrumentation. Each entry is timestamped relative to script
-        // parse (`t0`) and routed through the host bridge so it lands in
-        // Xcode's console during development. The post() shim no-ops when
-        // the bridge isn't installed (Quick Look, isolated test page).
-        const perfT0 = (typeof performance !== 'undefined' && performance.now)
-            ? performance.now() : 0;
-        function perfNow() {
-            return (typeof performance !== 'undefined' && performance.now)
-                ? performance.now() - perfT0 : 0;
-        }
-        function perfLog(label, detail) {
-            const dt = perfNow().toFixed(1);
-            const msg = '[mdp-perf +' + dt + 'ms] ' + label
-                + (detail !== undefined ? ' ' + detail : '');
-            try { post({ kind: 'log', message: msg }); } catch (e) {}
-        }
-        window.MdPreviewPerf = { now: perfNow, log: perfLog, t0: perfT0 };
-        perfLog('script eval');
-
-        if (typeof PerformanceObserver === 'function') {
-            try {
-                const po = new PerformanceObserver((list) => {
-                    for (const entry of list.getEntries()) {
-                        perfLog('paint:' + entry.name, entry.startTime.toFixed(1) + 'ms');
-                    }
-                });
-                po.observe({ type: 'paint', buffered: true });
-            } catch (e) {}
-        }
+        \(perfBridgeScript)
 
         function measureHeight() {
             const body = document.body;
@@ -980,9 +998,8 @@ enum MarkdownHTML {
 
     // MARK: - Code highlighting (highlight.js)
 
-    // Matches `<pre><code class="language-XXX">` for any language other than
-    // mermaid, since mermaid blocks have already been transformed into
-    // <figure class="mermaid-figure"> by the time this runs.
+    // Excludes `language-mermaid` since renderMermaidBlocks already lifted
+    // those into `<figure>` containers before this runs.
     private static let highlightableCodeRegex: NSRegularExpression = {
         // swiftlint:disable:next force_try
         try! NSRegularExpression(
@@ -991,42 +1008,37 @@ enum MarkdownHTML {
     }()
 
     private static func detectHighlightableCode(in html: String) -> Bool {
-        let nsHtml = html as NSString
-        let range = NSRange(location: 0, length: nsHtml.length)
-        return highlightableCodeRegex.firstMatch(in: html, range: range) != nil
+        firstMatch(of: highlightableCodeRegex, in: html) != nil
     }
 
-    private static let highlightFallbackScript = ""
-
-    /// JS body of `function highlightAll()`. Walks every untouched
-    /// `pre code[class*="language-"]` and runs `hljs.highlightElement` on it,
-    /// yielding via rAF every ~8 ms so the main thread is never pinned for
-    /// more than one frame even on docs with many code blocks.
+    /// Yields via rAF every ~8 ms so the main thread is never pinned for
+    /// more than one frame on docs with many code blocks.
     private static let highlightAllBody = """
     function highlightAll() {
         if (typeof hljs === 'undefined') return;
+        if (!document.querySelector('pre code[class*="language-"]:not([data-hljs-done="1"])')) return;
         const blocks = Array.prototype.slice.call(
-            document.querySelectorAll('pre code[class*="language-"]')
-        ).filter((b) => {
-            if (b.dataset.hljsDone === '1') return false;
-            return !b.classList.contains('language-mermaid');
-        });
-        if (window.MdPreviewPerf) MdPreviewPerf.log('hljs highlightAll start', blocks.length + ' blocks');
+            document.querySelectorAll('pre code[class*="language-"]:not([data-hljs-done="1"])')
+        );
+        MdPreviewPerf.log('hljs highlightAll start', blocks.length + ' blocks');
         let i = 0;
         function step() {
-            const sliceStart = (window.MdPreviewPerf ? MdPreviewPerf.now() : 0);
+            const sliceStart = MdPreviewPerf.now();
             while (i < blocks.length) {
                 const block = blocks[i++];
-                try { hljs.highlightElement(block); } catch (e) {}
+                try {
+                    hljs.highlightElement(block);
+                } catch (e) {
+                    MdPreviewPerf.log('hljs threw', String(e && e.message || e));
+                }
                 block.dataset.hljsDone = '1';
-                if (window.MdPreviewPerf
-                    && MdPreviewPerf.now() - sliceStart > 8) break;
+                if (MdPreviewPerf.now() - sliceStart > 8) break;
             }
             if (i < blocks.length) {
                 requestAnimationFrame(step);
             } else {
                 window.dispatchEvent(new Event('md-preview-hljs-rendered'));
-                if (window.MdPreviewPerf) MdPreviewPerf.log('hljs all done');
+                MdPreviewPerf.log('hljs all done');
             }
         }
         requestAnimationFrame(step);
@@ -1035,7 +1047,7 @@ enum MarkdownHTML {
 
     private static func highlightHead(mode: VendorLoading) -> String {
         guard bundledVendorURL("highlight.min", ext: "js", subdir: "Vendor/Highlight") != nil else {
-            return highlightFallbackScript
+            return ""
         }
         let css = bundledVendorResource("highlight.min", ext: "css", subdir: "Vendor/Highlight") ?? ""
 

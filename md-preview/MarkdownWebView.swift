@@ -156,9 +156,7 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
             guard let value = dict["value"] as? NSNumber else { return }
             heightDidChange?(ceil(CGFloat(truncating: value)))
         case "log":
-            // Forwarded from MdPreviewPerf.log() in the host bridge — surfaces
-            // load-phase timings (script append/onload, paint, fast-path
-            // updates, hljs progress) in Xcode's console while debugging.
+            // MdPreviewPerf.log() — debug-only; release builds never post.
             guard let message = dict["message"] as? String else { return }
             print(message)
         default:
