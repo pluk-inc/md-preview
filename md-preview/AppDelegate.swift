@@ -14,10 +14,11 @@ extension NSToolbarItem.Identifier {
     static let inspector = NSToolbarItem.Identifier("Inspector")
     static let share = NSToolbarItem.Identifier("Share")
     static let search = NSToolbarItem.Identifier("Search")
+    static let sidebarMenu = NSToolbarItem.Identifier("SidebarMenu")
 }
 
 @main
-class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharingServicePickerToolbarItemDelegate, NSSearchFieldDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharingServicePickerToolbarItemDelegate, NSSearchFieldDelegate, NSMenuDelegate {
 
     @IBOutlet var window: NSWindow!
 
@@ -37,8 +38,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     private weak var inspectorItem: NSToolbarItem?
     private weak var inspectorButton: NSButton?
     private weak var searchField: NSSearchField?
-    private var accessBanner: MissingFolderAccessBanner?
-    private var accessBannerAccessory: NSTitlebarAccessoryViewController?
+    private weak var sidebarMenu: NSMenu?
+    private weak var sidebarPopUpButton: NSPopUpButton?
+    private weak var hideSidebarMenuItem: NSMenuItem?
+    private weak var outlineMenuItem: NSMenuItem?
+    private weak var filesMenuItem: NSMenuItem?
     private var findBar: FindBar?
     private var findBarAccessory: NSTitlebarAccessoryViewController?
     private var searchMode: SearchMode = .contains
@@ -56,7 +60,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         window.styleMask.insert(.fullSizeContentView)
-        window.contentViewController = MainSplitViewController()
+        let split = MainSplitViewController()
+        split.onSelectFile = { [weak self] url in
+            self?.present(url: url)
+        }
+        window.contentViewController = split
         window.setContentSize(NSSize(width: 1100, height: 720))
         window.center()
         window.setFrameAutosaveName("MainWindow")
@@ -69,7 +77,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         window.toolbarStyle = .automatic
 
         installFindBar()
-        installAccessBanner()
+        installSidebarViewMenuItems()
 
         hasLaunched = true
 
@@ -163,7 +171,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             .flexibleSpace,
-            .toggleSidebar,
+            .sidebarMenu,
             .sidebarTrackingSeparator,
             .openWith,
             .flexibleSpace,
@@ -175,7 +183,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
-            .toggleSidebar,
+            .sidebarMenu,
             .sidebarTrackingSeparator,
             .flexibleSpace,
             .space,
@@ -190,12 +198,188 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
                  itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
+        case .sidebarMenu: return makeSidebarMenuItem()
         case .openWith: return makeOpenWithItem()
         case .inspector: return makeInspectorItem()
         case .share: return makeShareItem()
         case .search: return makeSearchItem()
         default: return nil
         }
+    }
+
+    private func makeSidebarMenuItem() -> NSToolbarItem {
+        let item = NSToolbarItem(itemIdentifier: .sidebarMenu)
+        item.label = "Sidebar"
+        item.paletteLabel = "Sidebar"
+        item.toolTip = "Sidebar options"
+
+        // NSPopUpButton (pull-down) so a single click anywhere on the button
+        // opens the menu and the chevron renders natively. NSMenuToolbarItem
+        // either splits the click (icon vs chevron) or auto-promotes the first
+        // item out of the dropdown — neither matches the Preview-style pulldown.
+        let popup = NSPopUpButton(frame: .zero, pullsDown: true)
+        popup.translatesAutoresizingMaskIntoConstraints = false
+        popup.bezelStyle = .toolbar
+        popup.imagePosition = .imageOnly
+
+        let menu = NSMenu()
+        menu.identifier = NSUserInterfaceItemIdentifier("SidebarMenu")
+        menu.delegate = self
+        menu.autoenablesItems = false
+        rebuildSidebarMenu(menu)
+        popup.menu = menu
+        popup.sizeToFit()
+
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(popup)
+        NSLayoutConstraint.activate([
+            popup.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            popup.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            popup.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            container.heightAnchor.constraint(equalToConstant: 32)
+        ])
+
+        item.view = container
+        sidebarMenu = menu
+        sidebarPopUpButton = popup
+        return item
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === sidebarMenu else { return }
+        rebuildSidebarMenu(menu)
+    }
+
+    private func rebuildSidebarMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+
+        // Pull-down NSPopUpButton uses the first item as the always-visible
+        // button face (showing only the icon thanks to imagePosition). The
+        // dropdown shows items 2+, so the button face is reserved here.
+        let face = NSMenuItem()
+        face.image = sidebarFaceImage()
+        menu.addItem(face)
+
+        let split = window.contentViewController as? MainSplitViewController
+        let sidebarVisible = split?.isSidebarVisible ?? false
+        let mode = split?.sidebarMode ?? .outline
+
+        let hide = NSMenuItem(title: "Hide Sidebar",
+                              action: #selector(hideSidebarFromMenu(_:)),
+                              keyEquivalent: "")
+        hide.target = self
+        hide.state = sidebarVisible ? .off : .on
+        menu.addItem(hide)
+
+        let outline = NSMenuItem(title: "Table of Contents",
+                                 action: #selector(selectOutlineMode(_:)),
+                                 keyEquivalent: "")
+        outline.target = self
+        outline.state = (sidebarVisible && mode == .outline) ? .on : .off
+        menu.addItem(outline)
+
+        let files = NSMenuItem(title: "Project Navigator",
+                               action: #selector(selectFilesMode(_:)),
+                               keyEquivalent: "")
+        files.target = self
+        files.state = (sidebarVisible && mode == .files) ? .on : .off
+        menu.addItem(files)
+    }
+
+    private func sidebarFaceImage() -> NSImage {
+        let image = NSImage(systemSymbolName: "sidebar.leading",
+                            accessibilityDescription: "Sidebar") ?? NSImage()
+        image.isTemplate = true
+        return image
+    }
+
+    @objc private func toggleSidebarFromMenu(_ sender: Any?) {
+        (window.contentViewController as? MainSplitViewController)?.toggleSidebar()
+    }
+
+    @objc private func hideSidebarFromMenu(_ sender: Any?) {
+        guard let split = window.contentViewController as? MainSplitViewController,
+              split.isSidebarVisible else { return }
+        split.toggleSidebar()
+    }
+
+    @objc private func selectOutlineMode(_ sender: Any?) {
+        guard let split = window.contentViewController as? MainSplitViewController else { return }
+        split.setSidebarMode(.outline)
+        split.showSidebar()
+    }
+
+    @objc private func selectFilesMode(_ sender: Any?) {
+        guard let split = window.contentViewController as? MainSplitViewController else { return }
+        split.setSidebarMode(.files)
+        split.showSidebar()
+    }
+
+    private func installSidebarViewMenuItems() {
+        guard let viewMenu = NSApp.mainMenu?.items
+            .first(where: { $0.title == "View" })?.submenu else { return }
+
+        // The XIB ships with a "Show Sidebar" item using the system
+        // toggleSidebar: action. Replace it with the three-state menu Apple
+        // uses in Preview (Hide Sidebar / Table of Contents / Folder Contents).
+        if let existing = viewMenu.items.first(where: { $0.title == "Show Sidebar" }) {
+            viewMenu.removeItem(existing)
+        }
+
+        let insertIndex = (viewMenu.items.firstIndex(where: { $0.isSeparatorItem }) ?? -1) + 1
+
+        let hide = makeSidebarViewMenuItem(title: "Hide Sidebar",
+                                           symbol: "sidebar.leading",
+                                           keyEquivalent: "1",
+                                           action: #selector(hideSidebarFromMenu(_:)))
+        viewMenu.insertItem(hide, at: insertIndex)
+        hideSidebarMenuItem = hide
+
+        let outline = makeSidebarViewMenuItem(title: "Table of Contents",
+                                              symbol: "list.bullet.indent",
+                                              keyEquivalent: "2",
+                                              action: #selector(selectOutlineMode(_:)))
+        viewMenu.insertItem(outline, at: insertIndex + 1)
+        outlineMenuItem = outline
+
+        let files = makeSidebarViewMenuItem(title: "Project Navigator",
+                                            symbol: "folder",
+                                            keyEquivalent: "3",
+                                            action: #selector(selectFilesMode(_:)))
+        viewMenu.insertItem(files, at: insertIndex + 2)
+        filesMenuItem = files
+
+        viewMenu.insertItem(.separator(), at: insertIndex + 3)
+    }
+
+    private func makeSidebarViewMenuItem(title: String,
+                                         symbol: String,
+                                         keyEquivalent: String,
+                                         action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        item.keyEquivalentModifierMask = [.option, .command]
+        item.target = self
+        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: title) {
+            image.isTemplate = true
+            item.image = image
+        }
+        return item
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let split = window.contentViewController as? MainSplitViewController
+        let sidebarVisible = split?.isSidebarVisible ?? false
+        let mode = split?.sidebarMode ?? .outline
+
+        if menuItem === hideSidebarMenuItem {
+            menuItem.state = sidebarVisible ? .off : .on
+        } else if menuItem === outlineMenuItem {
+            menuItem.state = (sidebarVisible && mode == .outline) ? .on : .off
+        } else if menuItem === filesMenuItem {
+            menuItem.state = (sidebarVisible && mode == .files) ? .on : .off
+        }
+        return true
     }
 
     private func makeInspectorItem() -> NSToolbarItem {
@@ -665,6 +849,74 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         ) { _, _ in }
     }
 
+    private struct ContextOpenPayload {
+        let fileURL: URL
+        let appURL: URL
+    }
+
+    func openInNewWindow(_ fileURL: URL) {
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.open([fileURL],
+                                withApplicationAt: Bundle.main.bundleURL,
+                                configuration: config) { _, _ in }
+    }
+
+    func contextMenuEditorItems(for fileURL: URL) -> [NSMenuItem] {
+        let candidates = editorCandidates(for: fileURL)
+        let defaultEditor = resolveDefaultEditor(among: candidates)
+
+        var items: [NSMenuItem] = []
+
+        let externalItem = NSMenuItem(
+            title: "Open with External Editor",
+            action: #selector(contextLaunchEditor(_:)),
+            keyEquivalent: ""
+        )
+        externalItem.image = NSImage(systemSymbolName: "arrow.up.right.square",
+                                     accessibilityDescription: nil)
+        if let defaultEditor {
+            externalItem.target = self
+            externalItem.representedObject = ContextOpenPayload(fileURL: fileURL, appURL: defaultEditor.url)
+            externalItem.toolTip = "Open in \(displayName(for: defaultEditor.url))"
+        } else {
+            externalItem.isEnabled = false
+        }
+        items.append(externalItem)
+
+        let openAs = NSMenuItem(title: "Open As", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        if candidates.isEmpty {
+            submenu.addItem(disabledItem("No editors available"))
+        } else {
+            for candidate in candidates {
+                let item = NSMenuItem(
+                    title: displayName(for: candidate.url),
+                    action: #selector(contextLaunchEditor(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = ContextOpenPayload(fileURL: fileURL, appURL: candidate.url)
+                let icon = NSWorkspace.shared.icon(forFile: candidate.url.path)
+                icon.size = NSSize(width: 16, height: 16)
+                item.image = icon
+                if let defaultEditor, sameEditor(candidate, defaultEditor) {
+                    item.state = .on
+                }
+                submenu.addItem(item)
+            }
+        }
+        openAs.submenu = submenu
+        items.append(openAs)
+
+        return items
+    }
+
+    @objc private func contextLaunchEditor(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? ContextOpenPayload else { return }
+        launch(payload.fileURL, with: payload.appURL)
+    }
+
     @IBAction func checkForUpdates(_ sender: Any?) {
         updaterController.updater.checkForUpdates()
     }
@@ -711,31 +963,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     }
 
     private func renderCurrentDocument(text: String, fileURL: URL) {
-        let assetBase = SandboxAccessManager.shared.currentAccessURL(forParentOf: fileURL)
-
-        let needsBanner = assetBase == nil
-            && MarkdownAssetScanner.hasRelativeLocalRefs(text)
-        updateAccessBanner(visible: needsBanner,
-                           folderName: fileURL.deletingLastPathComponent().lastPathComponent)
-
         (window.contentViewController as? MainSplitViewController)?
             .display(markdown: text,
                      fileName: fileURL.lastPathComponent,
                      url: fileURL,
-                     assetBaseURL: assetBase)
-    }
-
-    private func installAccessBanner() {
-        let banner = MissingFolderAccessBanner(
-            frame: NSRect(x: 0,
-                          y: 0,
-                          width: 600,
-                          height: MissingFolderAccessBanner.preferredHeight))
-        banner.autoresizingMask = [.width]
-        banner.onAllow = { [weak self] in self?.grantAccessForCurrentDocument() }
-
-        self.accessBanner = banner
-        self.accessBannerAccessory = addBottomTitlebarAccessory(banner)
+                     assetBaseURL: fileURL.deletingLastPathComponent())
     }
 
     private func addBottomTitlebarAccessory(
@@ -751,24 +983,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         return accessory
     }
 
-    private func updateAccessBanner(visible: Bool, folderName: String) {
-        guard let accessory = accessBannerAccessory, let banner = accessBanner else { return }
-        if visible {
-            banner.update(folderName: folderName)
-        }
-        if accessory.isHidden == visible {
-            accessory.isHidden = !visible
-        }
-    }
-
-    private func grantAccessForCurrentDocument() {
-        guard let url = currentFileURL, let text = currentMarkdown else { return }
-        guard SandboxAccessManager.shared.requestAccess(forParentOf: url) != nil else {
-            // User cancelled the panel — leave the banner up so they can retry.
-            return
-        }
-        renderCurrentDocument(text: text, fileURL: url)
-    }
 }
 
 private final class FileWatcher {
