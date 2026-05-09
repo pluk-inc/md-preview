@@ -12,12 +12,6 @@
       "sourceType": "github",
       "skillPath": "swift-concurrency/SKILL.md",
       "computedHash": "64067648af92d2c24b8df033e9f1b19ab36364fbee015a53755d7e74a5711b60"
-    },
-    "swift-concurrency-6-2": {
-      "source": "affaan-m/everything-claude-code",
-      "sourceType": "github",
-      "skillPath": "skills/swift-concurrency-6-2/SKILL.md",
-      "computedHash": "494537bbbc803bd28b0a80bde5844fe82f4b334e7bcb8ba05a3b4a32b759b036"
     }
   }
 }
