@@ -615,6 +615,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         )
         group.label = "Zoom"
         group.paletteLabel = "Zoom"
+        group.toolTip = "Zoom"
+        for (subitem, tooltip) in zip(group.subitems, ["Zoom Out", "Zoom In"]) {
+            subitem.toolTip = tooltip
+        }
         // .expanded keeps the two-segment "A A" pair visible like Books / Reader,
         // instead of collapsing into a single button + menu when space is tight.
         group.controlRepresentation = .expanded
