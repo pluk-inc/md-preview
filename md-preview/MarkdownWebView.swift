@@ -88,7 +88,11 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
 
     private static let disableContextMenuScript = WKUserScript(
         source: """
-        document.addEventListener('contextmenu', event => event.preventDefault(), true);
+        document.addEventListener('contextmenu', event => {
+            const selection = window.getSelection();
+            if (selection && selection.toString().trim().length > 0) return;
+            event.preventDefault();
+        }, true);
         """,
         injectionTime: .atDocumentStart,
         forMainFrameOnly: true
