@@ -50,6 +50,9 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     }
     private var loadedFingerprint: RendererFingerprint?
     private var isPageReady = false
+    // Bumped on every display() call so a slower render finishing after a
+    // newer one is dropped instead of clobbering the latest article.
+    private var renderGeneration: UInt64 = 0
 
     override init(frame frameRect: NSRect) {
         let config = WKWebViewConfiguration()
@@ -95,10 +98,20 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     private func warmupVendors() {
         guard !isPageReady, loadedFingerprint == nil else { return }
         let baseHref = "\(MarkdownAssetScheme.scheme):///"
-        let rendered = MarkdownHTML.render(markdown: Self.warmupMarkdown,
-                                           assetBaseHref: baseHref,
-                                           vendorLoading: .lazy,
-                                           warmup: true)
+        let markdown = Self.warmupMarkdown
+        Task { @concurrent [weak self] in
+            let rendered = MarkdownHTML.render(markdown: markdown,
+                                               assetBaseHref: baseHref,
+                                               vendorLoading: .lazy,
+                                               warmup: true)
+            await self?.applyWarmup(rendered)
+        }
+    }
+
+    private func applyWarmup(_ rendered: MarkdownHTML.RenderedHTML) {
+        // Another display() may have arrived during the off-main render and
+        // already swapped the page in — don't stomp it with the warmup doc.
+        guard !isPageReady, loadedFingerprint == nil else { return }
         loadedFingerprint = RendererFingerprint(
             math: rendered.containsMath,
             mermaid: rendered.containsMermaid,
@@ -128,16 +141,28 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
 
     func display(markdown: String, assetBaseURL: URL? = nil) {
         assetScheme.setBaseURL(assetBaseURL)
+        currentAssetBase = assetBaseURL
         let baseHref = "\(MarkdownAssetScheme.scheme):///"
-        let rendered = MarkdownHTML.render(markdown: markdown,
-                                           assetBaseHref: baseHref,
-                                           vendorLoading: .lazy)
+        renderGeneration &+= 1
+        let generation = renderGeneration
+        Task { @concurrent [weak self] in
+            let rendered = MarkdownHTML.render(markdown: markdown,
+                                               assetBaseHref: baseHref,
+                                               vendorLoading: .lazy)
+            await self?.applyDisplay(rendered, generation: generation)
+        }
+    }
+
+    private func applyDisplay(_ rendered: MarkdownHTML.RenderedHTML,
+                              generation: UInt64) {
+        // A newer display() bumped the generation while this render was
+        // off-main — drop the stale result so the latest article wins.
+        guard generation == renderGeneration else { return }
         let fingerprint = RendererFingerprint(
             math: rendered.containsMath,
             mermaid: rendered.containsMermaid,
             code: rendered.containsCode
         )
-        currentAssetBase = assetBaseURL
 
         // Fast path: the loaded page already has every renderer the new doc
         // needs — swap the article body via JS instead of reloading the

@@ -455,9 +455,9 @@ final class ProjectNavigatorView: NSView {
 
     @objc private func copyContents(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task { @concurrent in
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
-            DispatchQueue.main.async {
+            await MainActor.run {
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 pasteboard.setString(text, forType: .string)

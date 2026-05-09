@@ -15,7 +15,7 @@ struct FrontmatterEntry: Equatable, Identifiable {
 // `---` would otherwise turn the preceding lines into a setext H2 in the
 // rendered output. We strip the block before parsing and surface the parsed
 // entries in the Inspector instead.
-enum MarkdownFrontmatter {
+nonisolated enum MarkdownFrontmatter {
 
     static func split(_ markdown: String) -> (raw: String?, body: String) {
         let stripped = markdown.first == "\u{FEFF}" ? String(markdown.dropFirst()) : markdown
