@@ -8,8 +8,8 @@ import os
 import WebKit
 
 extension Logger {
-    private static let subsystem = Bundle.main.bundleIdentifier ?? "doc.md-preview"
-    static let perf = Logger(subsystem: subsystem, category: "perf")
+    private nonisolated static let subsystem = Bundle.main.bundleIdentifier ?? "doc.md-preview"
+    nonisolated static let perf = Logger(subsystem: subsystem, category: "perf")
 }
 
 enum SearchMode {
@@ -100,10 +100,10 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         let baseHref = "\(MarkdownAssetScheme.scheme):///"
         let markdown = Self.warmupMarkdown
         Task { @concurrent [weak self] in
-            let rendered = MarkdownHTML.render(markdown: markdown,
-                                               assetBaseHref: baseHref,
-                                               vendorLoading: .lazy,
-                                               warmup: true)
+            let rendered = Self.timedRender(label: "warmup",
+                                            markdown: markdown,
+                                            assetBaseHref: baseHref,
+                                            warmup: true)
             await self?.applyWarmup(rendered)
         }
     }
@@ -146,11 +146,33 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         renderGeneration &+= 1
         let generation = renderGeneration
         Task { @concurrent [weak self] in
-            let rendered = MarkdownHTML.render(markdown: markdown,
-                                               assetBaseHref: baseHref,
-                                               vendorLoading: .lazy)
+            let rendered = Self.timedRender(label: "display",
+                                            markdown: markdown,
+                                            assetBaseHref: baseHref)
             await self?.applyDisplay(rendered, generation: generation)
         }
+    }
+
+    /// Logs Swift-side render duration alongside the JS-side `MdPreviewPerf`
+    /// entries, so a single `log stream --predicate 'subsystem ==
+    /// "doc.md-preview"'` shows render → load → first-paint end to end.
+    private nonisolated static func timedRender(label: String,
+                                                markdown: String,
+                                                assetBaseHref: String,
+                                                warmup: Bool = false) -> MarkdownHTML.RenderedHTML {
+        let t0 = DispatchTime.now()
+        let rendered = MarkdownHTML.render(markdown: markdown,
+                                           assetBaseHref: assetBaseHref,
+                                           vendorLoading: .lazy,
+                                           warmup: warmup)
+        let elapsedMs = Int(
+            (Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds)
+             / 1_000_000).rounded()
+        )
+        Logger.perf.debug(
+            "[mdp-perf-swift] \(label, privacy: .public) render +\(elapsedMs, privacy: .public)ms (\(markdown.count, privacy: .public) chars)"
+        )
+        return rendered
     }
 
     private func applyDisplay(_ rendered: MarkdownHTML.RenderedHTML,
