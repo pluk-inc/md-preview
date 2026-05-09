@@ -139,7 +139,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         }
 
         UserDefaults.standard.set(true, forKey: key)
-        Task {
+        Task { @concurrent in
             try? await NSWorkspace.shared.setDefaultApplication(
                 at: Bundle.main.bundleURL,
                 toOpen: markdownType
@@ -945,21 +945,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     }
 
     private func loadFile(at url: URL, silentOnFailure: Bool = false) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Result { try String(contentsOf: url, encoding: .utf8) }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                switch result {
-                case .success(let text):
-                    self.currentMarkdown = text
-                    self.renderCurrentDocument(text: text, fileURL: url)
-                case .failure(let error):
-                    if !silentOnFailure {
-                        NSAlert(error: error).beginSheetModal(for: self.window)
-                    }
-                }
+        Task { @concurrent [weak self] in
+            do {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                await self?.applyLoadedMarkdown(text, fileURL: url)
+            } catch {
+                // Wrap as NSError (Sendable) so the original presentation —
+                // localizedDescription + recovery suggestion — survives the
+                // hop back to MainActor.
+                let nsError = error as NSError
+                await self?.applyLoadFailure(error: nsError,
+                                             silentOnFailure: silentOnFailure)
             }
         }
+    }
+
+    private func applyLoadedMarkdown(_ text: String, fileURL: URL) {
+        currentMarkdown = text
+        renderCurrentDocument(text: text, fileURL: fileURL)
+    }
+
+    private func applyLoadFailure(error: NSError, silentOnFailure: Bool) {
+        guard !silentOnFailure else { return }
+        NSAlert(error: error).beginSheetModal(for: window)
     }
 
     private func renderCurrentDocument(text: String, fileURL: URL) {

@@ -8,8 +8,8 @@ import os
 import WebKit
 
 extension Logger {
-    private static let subsystem = Bundle.main.bundleIdentifier ?? "doc.md-preview"
-    static let perf = Logger(subsystem: subsystem, category: "perf")
+    private nonisolated static let subsystem = Bundle.main.bundleIdentifier ?? "doc.md-preview"
+    nonisolated static let perf = Logger(subsystem: subsystem, category: "perf")
 }
 
 enum SearchMode {
@@ -50,6 +50,9 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     }
     private var loadedFingerprint: RendererFingerprint?
     private var isPageReady = false
+    // Bumped on every display() call so a slower render finishing after a
+    // newer one is dropped instead of clobbering the latest article.
+    private var renderGeneration: UInt64 = 0
 
     override init(frame frameRect: NSRect) {
         let config = WKWebViewConfiguration()
@@ -95,10 +98,20 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     private func warmupVendors() {
         guard !isPageReady, loadedFingerprint == nil else { return }
         let baseHref = "\(MarkdownAssetScheme.scheme):///"
-        let rendered = MarkdownHTML.render(markdown: Self.warmupMarkdown,
-                                           assetBaseHref: baseHref,
-                                           vendorLoading: .lazy,
-                                           warmup: true)
+        let markdown = Self.warmupMarkdown
+        Task { @concurrent [weak self] in
+            let rendered = Self.timedRender(label: "warmup",
+                                            markdown: markdown,
+                                            assetBaseHref: baseHref,
+                                            warmup: true)
+            await self?.applyWarmup(rendered)
+        }
+    }
+
+    private func applyWarmup(_ rendered: MarkdownHTML.RenderedHTML) {
+        // Another display() may have arrived during the off-main render and
+        // already swapped the page in — don't stomp it with the warmup doc.
+        guard !isPageReady, loadedFingerprint == nil else { return }
         loadedFingerprint = RendererFingerprint(
             math: rendered.containsMath,
             mermaid: rendered.containsMermaid,
@@ -128,16 +141,50 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
 
     func display(markdown: String, assetBaseURL: URL? = nil) {
         assetScheme.setBaseURL(assetBaseURL)
+        currentAssetBase = assetBaseURL
         let baseHref = "\(MarkdownAssetScheme.scheme):///"
+        renderGeneration &+= 1
+        let generation = renderGeneration
+        Task { @concurrent [weak self] in
+            let rendered = Self.timedRender(label: "display",
+                                            markdown: markdown,
+                                            assetBaseHref: baseHref)
+            await self?.applyDisplay(rendered, generation: generation)
+        }
+    }
+
+    /// Logs Swift-side render duration alongside the JS-side `MdPreviewPerf`
+    /// entries, so a single `log stream --predicate 'subsystem ==
+    /// "doc.md-preview"'` shows render → load → first-paint end to end.
+    private nonisolated static func timedRender(label: String,
+                                                markdown: String,
+                                                assetBaseHref: String,
+                                                warmup: Bool = false) -> MarkdownHTML.RenderedHTML {
+        let t0 = DispatchTime.now()
         let rendered = MarkdownHTML.render(markdown: markdown,
-                                           assetBaseHref: baseHref,
-                                           vendorLoading: .lazy)
+                                           assetBaseHref: assetBaseHref,
+                                           vendorLoading: .lazy,
+                                           warmup: warmup)
+        let elapsedMs = Int(
+            (Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds)
+             / 1_000_000).rounded()
+        )
+        Logger.perf.debug(
+            "[mdp-perf-swift] \(label, privacy: .public) render +\(elapsedMs, privacy: .public)ms (\(markdown.count, privacy: .public) chars)"
+        )
+        return rendered
+    }
+
+    private func applyDisplay(_ rendered: MarkdownHTML.RenderedHTML,
+                              generation: UInt64) {
+        // A newer display() bumped the generation while this render was
+        // off-main — drop the stale result so the latest article wins.
+        guard generation == renderGeneration else { return }
         let fingerprint = RendererFingerprint(
             math: rendered.containsMath,
             mermaid: rendered.containsMermaid,
             code: rendered.containsCode
         )
-        currentAssetBase = assetBaseURL
 
         // Fast path: the loaded page already has every renderer the new doc
         // needs — swap the article body via JS instead of reloading the

@@ -227,7 +227,7 @@ extension SidebarViewController: NSOutlineViewDelegate {
             cell.textField = textField
 
             NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
                 textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
             ])
@@ -265,7 +265,7 @@ extension SidebarViewController: NSOutlineViewDelegate {
             cell.textField = textField
 
             NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
+                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
                 textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
                 textField.topAnchor.constraint(equalTo: cell.topAnchor, constant: 8),
                 textField.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -4)
@@ -455,9 +455,9 @@ final class ProjectNavigatorView: NSView {
 
     @objc private func copyContents(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task { @concurrent in
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
-            DispatchQueue.main.async {
+            await MainActor.run {
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 pasteboard.setString(text, forType: .string)

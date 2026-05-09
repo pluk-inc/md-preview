@@ -6,7 +6,10 @@
 import Foundation
 import Markdown
 
-enum MarkdownHTML {
+// Pure string transforms — no UI state — so the whole namespace runs off
+// the main actor. This lets MarkdownWebView.display dispatch the render
+// to a concurrent task instead of stalling the main thread on large docs.
+nonisolated enum MarkdownHTML {
     /// How the heavy KaTeX/Mermaid bundles are delivered.
     /// - inline: bundles are embedded as `<script>…</script>` blocks in the
     ///   HTML head. Self-contained, slow first-paint, used by Quick Look
@@ -19,7 +22,7 @@ enum MarkdownHTML {
         case lazy
     }
 
-    struct RenderedHTML {
+    struct RenderedHTML: Sendable {
         let html: String
         let articleHTML: String
         let containsMath: Bool

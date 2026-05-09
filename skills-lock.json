@@ -6,6 +6,12 @@
       "sourceType": "github",
       "skillPath": "skills/amore-cli/SKILL.md",
       "computedHash": "d2a569cc64397d101b22fb262cbd6e28daeb577d40ca957723999925057227b3"
+    },
+    "swift-concurrency": {
+      "source": "avdlee/swift-concurrency-agent-skill",
+      "sourceType": "github",
+      "skillPath": "swift-concurrency/SKILL.md",
+      "computedHash": "64067648af92d2c24b8df033e9f1b19ab36364fbee015a53755d7e74a5711b60"
     }
   }
 }

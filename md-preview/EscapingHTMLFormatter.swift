@@ -10,7 +10,7 @@ import Markdown
 // attribute values. Upstream HTMLFormatter emits unescaped content
 // (swift-markdown 0.7.x), so characters like `<`, `>`, and `&` either render
 // invisibly or get reinterpreted as HTML — see issue #33.
-struct EscapingHTMLFormatter: MarkupWalker {
+nonisolated struct EscapingHTMLFormatter: MarkupWalker {
     private(set) var result = ""
 
     let options: HTMLFormatterOptions
@@ -258,7 +258,7 @@ struct EscapingHTMLFormatter: MarkupWalker {
     }
 }
 
-private func escapeText(_ string: String) -> String {
+private nonisolated func escapeText(_ string: String) -> String {
     var out = ""
     out.reserveCapacity(string.count)
     for ch in string {
@@ -272,7 +272,7 @@ private func escapeText(_ string: String) -> String {
     return out
 }
 
-private func escapeAttribute(_ string: String) -> String {
+private nonisolated func escapeAttribute(_ string: String) -> String {
     var out = ""
     out.reserveCapacity(string.count)
     for ch in string {
