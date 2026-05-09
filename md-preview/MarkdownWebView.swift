@@ -59,6 +59,7 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     // is invariant under pageZoom).
     private var lastReportedDocumentHeight: CGFloat = 1
     private var zoomDefaultsKey: String?
+    private var currentMarkdown: String?
 
     override init(frame frameRect: NSRect) {
         let config = WKWebViewConfiguration()
@@ -146,6 +147,7 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     }
 
     func display(markdown: String, assetBaseURL: URL? = nil) {
+        currentMarkdown = markdown
         assetScheme.setBaseURL(assetBaseURL)
         currentAssetBase = assetBaseURL
         let baseHref = "\(MarkdownAssetScheme.scheme):///"
@@ -206,6 +208,11 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         webView.loadHTMLString(rendered.html, baseURL: nil)
         loadedFingerprint = fingerprint
         isPageReady = false
+    }
+
+    func reloadPreview() {
+        guard let currentMarkdown else { return }
+        display(markdown: currentMarkdown, assetBaseURL: currentAssetBase)
     }
 
     fileprivate func didReceiveHostMessage(_ body: Any) {
@@ -753,8 +760,17 @@ private final class NonScrollingWKWebView: WKWebView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event)
-        menu?.items.removeAll { $0.action == #selector(WKWebView.reload(_:)) }
+        menu?.removeWebKitReloadItems()
         return menu
+    }
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        menu.removeWebKitReloadItems()
+        super.willOpenMenu(menu, with: event)
+    }
+
+    override func reload(_ sender: Any?) {
+        (superview as? MarkdownWebView)?.reloadPreview()
     }
 
     override func scrollLineUp(_ sender: Any?)            { forwardScrollAction(.lineUp) }
@@ -871,6 +887,15 @@ private final class NonScrollingWKWebView: WKWebView {
 
         lockedAxis = nil
         return perEvent
+    }
+}
+
+private extension NSMenu {
+    func removeWebKitReloadItems() {
+        for item in items {
+            item.submenu?.removeWebKitReloadItems()
+        }
+        items.removeAll { $0.action == #selector(WKWebView.reload(_:)) }
     }
 }
 
