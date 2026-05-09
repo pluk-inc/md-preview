@@ -58,6 +58,7 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     // without waiting for JS to post a fresh value (it won't — scrollHeight
     // is invariant under pageZoom).
     private var lastReportedDocumentHeight: CGFloat = 1
+    private var zoomDefaultsKey: String?
 
     override init(frame frameRect: NSRect) {
         let config = WKWebViewConfiguration()
@@ -276,6 +277,12 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     func zoomOut() { setPageZoom(nextZoomStep(from: webView.pageZoom, increasing: false)) }
     func resetZoom() { setPageZoom(1.0) }
 
+    func enablePersistentZoom(defaultsKey: String) {
+        zoomDefaultsKey = defaultsKey
+        guard let stored = UserDefaults.standard.object(forKey: defaultsKey) as? NSNumber else { return }
+        setPageZoom(CGFloat(truncating: stored), persist: false, notifyHeight: false)
+    }
+
     private func nextZoomStep(from current: CGFloat, increasing: Bool) -> CGFloat {
         let steps = Self.zoomSteps
         if increasing {
@@ -285,11 +292,32 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         }
     }
 
-    private func setPageZoom(_ value: CGFloat) {
-        let clamped = max(Self.zoomSteps.first!, min(Self.zoomSteps.last!, value))
+    private func setPageZoom(_ value: CGFloat,
+                             persist: Bool = true,
+                             notifyHeight: Bool = true) {
+        let clamped = clampedZoom(value)
         guard abs(webView.pageZoom - clamped) > 0.001 else { return }
         webView.pageZoom = clamped
-        heightDidChange?(lastReportedDocumentHeight * clamped)
+        if persist {
+            persistPageZoom(clamped)
+        }
+        if notifyHeight {
+            heightDidChange?(lastReportedDocumentHeight * clamped)
+        }
+    }
+
+    private func clampedZoom(_ value: CGFloat) -> CGFloat {
+        guard value.isFinite else { return 1.0 }
+        return max(Self.zoomSteps.first!, min(Self.zoomSteps.last!, value))
+    }
+
+    private func persistPageZoom(_ value: CGFloat) {
+        guard let zoomDefaultsKey else { return }
+        if abs(value - 1.0) <= 0.001 {
+            UserDefaults.standard.removeObject(forKey: zoomDefaultsKey)
+        } else {
+            UserDefaults.standard.set(Double(value), forKey: zoomDefaultsKey)
+        }
     }
 
     func printDocument(from window: NSWindow) {

@@ -7,6 +7,8 @@ import Cocoa
 
 final class ContentViewController: NSViewController {
 
+    private static let pageZoomDefaultsKey = "MarkdownPreview.pageZoom"
+
     private var webView: MarkdownWebView!
     private var documentHeightConstraint: NSLayoutConstraint!
     private var webViewHeightConstraint: NSLayoutConstraint!
@@ -35,6 +37,7 @@ final class ContentViewController: NSViewController {
         webView.fragmentLinkActivated = { [weak self] fragment in
             self?.scrollToElement(id: fragment)
         }
+        webView.enablePersistentZoom(defaultsKey: Self.pageZoomDefaultsKey)
 
         documentView.addSubview(webView)
         scrollView.documentView = documentView
