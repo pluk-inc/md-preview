@@ -271,8 +271,6 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     ]
 
     var pageZoom: CGFloat { webView.pageZoom }
-    var canZoomIn: Bool { webView.pageZoom < (Self.zoomSteps.last ?? 3.0) - 0.001 }
-    var canZoomOut: Bool { webView.pageZoom > (Self.zoomSteps.first ?? 0.5) + 0.001 }
 
     func zoomIn() { setPageZoom(nextZoomStep(from: webView.pageZoom, increasing: true)) }
     func zoomOut() { setPageZoom(nextZoomStep(from: webView.pageZoom, increasing: false)) }

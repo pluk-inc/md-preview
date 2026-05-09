@@ -27,7 +27,8 @@ final class ContentViewController: NSViewController {
         webView = MarkdownWebView()
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.heightDidChange = { [weak self] height in
-            guard let self else { return }
+            guard let self,
+                  abs(height - self.measuredDocumentHeight) > 0.5 else { return }
             self.measuredDocumentHeight = height
             self.applyDocumentHeight()
         }
@@ -120,8 +121,6 @@ final class ContentViewController: NSViewController {
     func zoomIn() { webView.zoomIn() }
     func zoomOut() { webView.zoomOut() }
     func resetZoom() { webView.resetZoom() }
-    var canZoomIn: Bool { webView.canZoomIn }
-    var canZoomOut: Bool { webView.canZoomOut }
 
     func scrollToHeading(index: Int) {
         webView.headingOffset(index: index) { [weak self] offset in

@@ -444,14 +444,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         item.image = NSImage(systemSymbolName: "printer",
                              accessibilityDescription: "Print")
         item.isBordered = true
-        item.target = self
-        item.action = #selector(printDocumentAction(_:))
+        item.action = #selector(MainSplitViewController.printMarkdown(_:))
         return item
-    }
-
-    @objc private func printDocumentAction(_ sender: Any?) {
-        (window.contentViewController as? MainSplitViewController)?
-            .printMarkdown(sender)
     }
 
     private func makeCopyItem() -> NSToolbarItem {
@@ -536,7 +530,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         default: break
         }
     }
-
 
     private func inspectorImage() -> NSImage {
         let image = NSImage(systemSymbolName: "info",
