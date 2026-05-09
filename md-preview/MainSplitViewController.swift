@@ -79,6 +79,13 @@ final class MainSplitViewController: NSSplitViewController {
         contentViewController?.resetZoom()
     }
 
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(resetDocumentZoom(_:)) {
+            return abs((contentViewController?.pageZoom ?? 1.0) - 1.0) > 0.001
+        }
+        return true
+    }
+
     var isInspectorVisible: Bool {
         !(splitViewItems.last?.isCollapsed ?? true)
     }

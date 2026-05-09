@@ -61,6 +61,10 @@ final class SidebarViewController: NSViewController {
         outlineView.delegate = self
         outlineView.target = self
         outlineView.action = #selector(rowClicked(_:))
+        // Don't grab keyboard focus — leave first responder on the document so
+        // arrow / Page keys scroll the preview instead of moving the sidebar
+        // selection. Click selects rows via target/action, not via focus.
+        outlineView.refusesFirstResponder = true
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("title"))
         column.isEditable = false
@@ -352,6 +356,7 @@ final class ProjectNavigatorView: NSView {
         outlineView.target = self
         outlineView.action = #selector(rowClicked)
         outlineView.indentationPerLevel = 14
+        outlineView.refusesFirstResponder = true
 
         let contextMenu = NSMenu()
         contextMenu.delegate = self

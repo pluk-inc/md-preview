@@ -369,6 +369,12 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="hB3-LF-h0Y"/>
+                            <menuItem title="Actual Size" keyEquivalent="0" id="mdp-zr-itm">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES"/>
+                                <connections>
+                                    <action selector="resetDocumentZoom:" target="-1" id="mdp-zr-act"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Zoom In" keyEquivalent="+" id="mdp-zi-itm">
                                 <modifierMask key="keyEquivalentModifierMask" command="YES"/>
                                 <connections>
@@ -379,12 +385,6 @@
                                 <modifierMask key="keyEquivalentModifierMask" command="YES"/>
                                 <connections>
                                     <action selector="zoomOutDocument:" target="-1" id="mdp-zo-act"/>
-                                </connections>
-                            </menuItem>
-                            <menuItem title="Actual Size" keyEquivalent="0" id="mdp-zr-itm">
-                                <modifierMask key="keyEquivalentModifierMask" command="YES"/>
-                                <connections>
-                                    <action selector="resetDocumentZoom:" target="-1" id="mdp-zr-act"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="mdp-zs-sep"/>

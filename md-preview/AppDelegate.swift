@@ -83,6 +83,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
 
         installFindBar()
         installSidebarViewMenuItems()
+        installGoMenu()
+        installZoomMenuItemIcons()
 
         hasLaunched = true
 
@@ -326,6 +328,107 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         guard let split = window.contentViewController as? MainSplitViewController else { return }
         split.setSidebarMode(.files)
         split.showSidebar()
+    }
+
+    private func installGoMenu() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+
+        func arrow(_ functionKey: Int) -> String {
+            UnicodeScalar(functionKey).map { String(Character($0)) } ?? ""
+        }
+
+        // Uniform point size keeps narrow glyphs (arrow.up/down) aligned with
+        // wider ones (arrow.up.document, chevron.up.circle) in the icon column.
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+
+        func makeItem(_ title: String,
+                      action: Selector,
+                      keyEquivalent: String,
+                      modifiers: NSEvent.ModifierFlags,
+                      symbol: String) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+            item.keyEquivalentModifierMask = modifiers
+            if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?
+                .withSymbolConfiguration(symbolConfig) {
+                image.isTemplate = true
+                item.image = image
+            }
+            return item
+        }
+
+        let menu = NSMenu(title: "Go")
+
+        menu.addItem(makeItem("Up",
+                              action: #selector(MarkdownWebView.mdScrollLineUp(_:)),
+                              keyEquivalent: arrow(NSUpArrowFunctionKey),
+                              modifiers: [],
+                              symbol: "arrow.up"))
+        menu.addItem(makeItem("Down",
+                              action: #selector(MarkdownWebView.mdScrollLineDown(_:)),
+                              keyEquivalent: arrow(NSDownArrowFunctionKey),
+                              modifiers: [],
+                              symbol: "arrow.down"))
+        menu.addItem(makeItem("Page Up",
+                              action: #selector(MarkdownWebView.mdScrollPageUp(_:)),
+                              keyEquivalent: arrow(NSPageUpFunctionKey),
+                              modifiers: [],
+                              symbol: "chevron.up.square"))
+        menu.addItem(makeItem("Page Down",
+                              action: #selector(MarkdownWebView.mdScrollPageDown(_:)),
+                              keyEquivalent: arrow(NSPageDownFunctionKey),
+                              modifiers: [],
+                              symbol: "chevron.down.square"))
+
+        menu.addItem(.separator())
+
+        menu.addItem(makeItem("Previous Item",
+                              action: #selector(MarkdownWebView.mdScrollPreviousHeading(_:)),
+                              keyEquivalent: arrow(NSUpArrowFunctionKey),
+                              modifiers: .option,
+                              symbol: "arrow.up.document"))
+        menu.addItem(makeItem("Next Item",
+                              action: #selector(MarkdownWebView.mdScrollNextHeading(_:)),
+                              keyEquivalent: arrow(NSDownArrowFunctionKey),
+                              modifiers: .option,
+                              symbol: "arrow.down.document"))
+
+        menu.addItem(.separator())
+
+        menu.addItem(makeItem("Top of Document",
+                              action: #selector(MarkdownWebView.mdScrollToTop(_:)),
+                              keyEquivalent: arrow(NSUpArrowFunctionKey),
+                              modifiers: .command,
+                              symbol: "arrow.up.to.line"))
+        menu.addItem(makeItem("Bottom of Document",
+                              action: #selector(MarkdownWebView.mdScrollToBottom(_:)),
+                              keyEquivalent: arrow(NSDownArrowFunctionKey),
+                              modifiers: .command,
+                              symbol: "arrow.down.to.line"))
+
+        let goItem = NSMenuItem(title: "Go", action: nil, keyEquivalent: "")
+        goItem.submenu = menu
+
+        let insertIndex = mainMenu.items.firstIndex(where: { $0.title == "Window" })
+            ?? mainMenu.items.count
+        mainMenu.insertItem(goItem, at: insertIndex)
+    }
+
+    private func installZoomMenuItemIcons() {
+        guard let viewMenu = NSApp.mainMenu?.items
+            .first(where: { $0.title == "View" })?.submenu else { return }
+        let icons: [(title: String, symbol: String)] = [
+            ("Actual Size", "magnifyingglass"),
+            ("Zoom In", "plus.magnifyingglass"),
+            ("Zoom Out", "minus.magnifyingglass")
+        ]
+        for (title, symbol) in icons {
+            guard let item = viewMenu.items.first(where: { $0.title == title }),
+                  let image = NSImage(systemSymbolName: symbol,
+                                      accessibilityDescription: title)
+            else { continue }
+            image.isTemplate = true
+            item.image = image
+        }
     }
 
     private func installSidebarViewMenuItems() {

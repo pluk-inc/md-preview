@@ -505,6 +505,118 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         return String(json.dropFirst().dropLast())
     }
 
+    enum ScrollAction {
+        case lineUp, lineDown, pageUp, pageDown, top, bottom, previousHeading, nextHeading
+    }
+
+    /// Returns true when the action was handled (false if there's no outer
+    /// scroll view yet, so the keyDown forwarder falls back to super).
+    @discardableResult
+    func performScrollAction(_ action: ScrollAction) -> Bool {
+        guard let scrollView = enclosingScrollView else { return false }
+        let clipView = scrollView.contentView
+        let documentHeight = scrollView.documentView?.bounds.height ?? clipView.bounds.height
+        let topInset = clipView.contentInsets.top
+        let bottomInset = clipView.contentInsets.bottom
+        let minY = -topInset
+        let maxY = max(documentHeight - clipView.bounds.height + bottomInset, minY)
+        let pageDelta = max(clipView.bounds.height * 0.9, 40)
+        let lineDelta: CGFloat = 40
+
+        if action == .previousHeading {
+            scrollToAdjacentHeading(forward: false, in: scrollView)
+            return true
+        }
+        if action == .nextHeading {
+            scrollToAdjacentHeading(forward: true, in: scrollView)
+            return true
+        }
+
+        let target: CGFloat
+        let duration: TimeInterval
+        switch action {
+        case .lineUp:
+            target = max(minY, min(clipView.bounds.origin.y - lineDelta, maxY))
+            duration = 0.08
+        case .lineDown:
+            target = max(minY, min(clipView.bounds.origin.y + lineDelta, maxY))
+            duration = 0.08
+        case .pageUp:
+            target = max(minY, min(clipView.bounds.origin.y - pageDelta, maxY))
+            duration = 0.08
+        case .pageDown:
+            target = max(minY, min(clipView.bounds.origin.y + pageDelta, maxY))
+            duration = 0.08
+        case .top:
+            target = minY
+            duration = 0.2
+        case .bottom:
+            target = maxY
+            duration = 0.2
+        case .previousHeading, .nextHeading:
+            return true
+        }
+        animateOuterScroll(to: target, in: scrollView, duration: duration)
+        return true
+    }
+
+    private func animateOuterScroll(to y: CGFloat,
+                                    in scrollView: NSScrollView,
+                                    duration: TimeInterval) {
+        let clipView = scrollView.contentView
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.allowsImplicitAnimation = true
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            clipView.animator().setBoundsOrigin(NSPoint(x: clipView.bounds.origin.x, y: y))
+        }
+        scrollView.reflectScrolledClipView(clipView)
+        scrollView.flashScrollers()
+    }
+
+    private func scrollToAdjacentHeading(forward: Bool, in scrollView: NSScrollView) {
+        let clipView = scrollView.contentView
+        let topInset = clipView.contentInsets.top
+        let bottomInset = clipView.contentInsets.bottom
+        let viewportTop = clipView.bounds.origin.y + topInset
+
+        let script = """
+        (() => {
+            const els = document.querySelectorAll('[id^="md-heading-"]');
+            const scroll = window.scrollY || document.documentElement.scrollTop || 0;
+            return Array.from(els).map(el => el.getBoundingClientRect().top + scroll);
+        })();
+        """
+        webView.evaluateJavaScript(script) { [weak self, weak scrollView] result, _ in
+            guard let self,
+                  let scrollView,
+                  let raw = result as? [NSNumber] else { return }
+            let offsets = raw.map { CGFloat(truncating: $0) }.sorted()
+            // Headings we navigate to land at viewportTop + topMargin (12 pt).
+            // Forward needs a buffer that clears that parked heading; backward
+            // needs to look strictly above the viewport top.
+            let pick: CGFloat? = forward
+                ? offsets.first(where: { $0 > viewportTop + 16 })
+                : offsets.last(where: { $0 < viewportTop - 1 })
+            guard let headingY = pick else { return }
+            let topMargin: CGFloat = 12
+            let documentHeight = scrollView.documentView?.bounds.height ?? clipView.bounds.height
+            let minY = -topInset
+            let maxY = max(documentHeight - clipView.bounds.height + bottomInset, minY)
+            let target = max(minY, min(headingY - topInset - topMargin, maxY))
+            self.animateOuterScroll(to: target, in: scrollView, duration: 0.2)
+        }
+    }
+
+    @objc func mdScrollLineUp(_ sender: Any?)          { performScrollAction(.lineUp) }
+    @objc func mdScrollLineDown(_ sender: Any?)        { performScrollAction(.lineDown) }
+    @objc func mdScrollPageUp(_ sender: Any?)          { performScrollAction(.pageUp) }
+    @objc func mdScrollPageDown(_ sender: Any?)        { performScrollAction(.pageDown) }
+    @objc func mdScrollToTop(_ sender: Any?)           { performScrollAction(.top) }
+    @objc func mdScrollToBottom(_ sender: Any?)        { performScrollAction(.bottom) }
+    @objc func mdScrollPreviousHeading(_ sender: Any?) { performScrollAction(.previousHeading) }
+    @objc func mdScrollNextHeading(_ sender: Any?)     { performScrollAction(.nextHeading) }
+
     private func neutralizeWebKitScrollEdgeInsets() {
         let zeroInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         for view in webView.descendantViews {
@@ -592,37 +704,47 @@ private final class NonScrollingWKWebView: WKWebView {
         super.keyDown(with: event)
     }
 
-    /// Routes Page Up/Down and Up/Down arrow keys to the outer NSScrollView,
-    /// since WKWebView's internal scrolling is disabled. Mirrors what
-    /// `scrollWheel(with:)` does for trackpad/mouse events.
+    /// Routes scroll-related keys to the parent MarkdownWebView so the same
+    /// logic backs both the menu actions (responder chain) and direct keyDown.
+    /// Mirrors what `scrollWheel(with:)` does for trackpad/mouse events.
+    /// - Plain ↑/↓: line. PgUp/PgDn: page.
+    /// - ⌘↑/⌘↓: top/bottom of document.
+    /// - ⌥↑/⌥↓: previous/next heading.
     private func forwardScrollKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
-              let outerScrollView = superview?.enclosingScrollView,
+        let cmd = event.modifierFlags.contains(.command)
+        let option = event.modifierFlags.contains(.option)
+        let control = event.modifierFlags.contains(.control)
+        let shift = event.modifierFlags.contains(.shift)
+        if control || shift || (cmd && option) { return false }
+
+        guard let owner = superview as? MarkdownWebView,
               let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first
         else { return false }
 
-        let clipView = outerScrollView.contentView
-        let pageDelta = max(clipView.bounds.height * 0.9, 40)
-        let lineDelta: CGFloat = 40
-
-        let delta: CGFloat
-        switch Int(scalar.value) {
-        case NSPageUpFunctionKey:    delta = -pageDelta
-        case NSPageDownFunctionKey:  delta = pageDelta
-        case NSUpArrowFunctionKey:   delta = -lineDelta
-        case NSDownArrowFunctionKey: delta = lineDelta
-        default: return false
+        let action: MarkdownWebView.ScrollAction?
+        if cmd {
+            switch Int(scalar.value) {
+            case NSUpArrowFunctionKey:   action = .top
+            case NSDownArrowFunctionKey: action = .bottom
+            default: action = nil
+            }
+        } else if option {
+            switch Int(scalar.value) {
+            case NSUpArrowFunctionKey:   action = .previousHeading
+            case NSDownArrowFunctionKey: action = .nextHeading
+            default: action = nil
+            }
+        } else {
+            switch Int(scalar.value) {
+            case NSPageUpFunctionKey:    action = .pageUp
+            case NSPageDownFunctionKey:  action = .pageDown
+            case NSUpArrowFunctionKey:   action = .lineUp
+            case NSDownArrowFunctionKey: action = .lineDown
+            default: action = nil
+            }
         }
-
-        let documentHeight = outerScrollView.documentView?.bounds.height ?? clipView.bounds.height
-        let topInset = clipView.contentInsets.top
-        let bottomInset = clipView.contentInsets.bottom
-        let minY = -topInset
-        let maxY = max(documentHeight - clipView.bounds.height + bottomInset, minY)
-        let target = max(minY, min(clipView.bounds.origin.y + delta, maxY))
-        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: target))
-        outerScrollView.reflectScrolledClipView(clipView)
-        return true
+        guard let action else { return false }
+        return owner.performScrollAction(action)
     }
 
     override func scrollWheel(with event: NSEvent) {
