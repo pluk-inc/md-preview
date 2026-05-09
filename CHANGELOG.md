@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.0.19] – 2026-05-09
+
+Syntax highlighting is back without the Shiki startup cost, the sidebar can browse sibling Markdown files, and preview reading controls are easier to reach.
+
+### Added
+
+- **Project Navigator sidebar mode.** The sidebar picker now switches between Hide, Table of Contents, and Project Navigator; the navigator lazily browses sibling Markdown files in the current folder and includes contextual actions for opening, revealing, copying paths, and copying file contents ([#93](https://github.com/pluk-inc/md-preview.app/pull/93)).
+- **Preview zoom controls.** A default toolbar zoom group and View-menu shortcuts (`⌘+`, `⌘-`, `⌘0`) resize the rendered preview from 50% to 300%, remember the chosen scale across launches, and use `WKWebView.pageZoom` so text, math, diagrams, and code scale together ([#96](https://github.com/pluk-inc/md-preview.app/pull/96), [#97](https://github.com/pluk-inc/md-preview.app/pull/97)).
+- **Customizable Print and Copy toolbar items.** Print and Copy are available from View → Customize Toolbar, with Copy placing the current Markdown source on the clipboard and briefly swapping its icon on success ([#96](https://github.com/pluk-inc/md-preview.app/pull/96)).
+- **Syntax highlighting returns via highlight.js.** Fenced code blocks are colored again in the app and Quick Look using a bundled highlight.js common-languages build, lazy-loaded after first paint and re-applied on fast-path document swaps so initial preview rendering stays responsive ([#90](https://github.com/pluk-inc/md-preview.app/pull/90)).
+
+### Changed
+
+- **Markdown rendering now runs off the main actor.** Pure Markdown-to-HTML work moved to background tasks with generation checks so large files and rapid file switches do not stall the UI or let stale renders overwrite newer content ([#95](https://github.com/pluk-inc/md-preview.app/pull/95)).
+- **Sandbox folder access is simpler.** The app now uses the same read-only absolute-path temporary exception pattern as the Quick Look extension, removing the folder-access banner and bookmark-management flow while keeping writes behind the existing sandbox save path ([#93](https://github.com/pluk-inc/md-preview.app/pull/93)).
+
+### Fixed
+
+- **Launch warmup no longer flashes synthetic content.** The hidden warmup document still primes KaTeX, Mermaid, and highlight.js, but the synthetic Mermaid diagram cannot briefly appear before the first real document renders ([#94](https://github.com/pluk-inc/md-preview.app/pull/94)).
+- **Zoom toolbar tooltips are reliable.** The toolbar group and its Zoom In / Zoom Out subitems now expose tooltip metadata at the toolbar-item level as well as on the segmented control ([#98](https://github.com/pluk-inc/md-preview.app/pull/98)).
+- **TOC title alignment is flush again.** The table-of-contents title row no longer carries the extra leading inset that made it sit out of alignment with the rest of the sidebar ([#98](https://github.com/pluk-inc/md-preview.app/pull/98)).
+
+### Contributors
+
+Thanks to the external contributors who reported issues fixed in this release:
+
+- [@amiramir](https://github.com/amiramir) — reported the preview zoom request ([#91](https://github.com/pluk-inc/md-preview.app/issues/91))
+- [@MyCometG3](https://github.com/MyCometG3) — reported keyboard navigation improvements covered by the new scroll actions ([#92](https://github.com/pluk-inc/md-preview.app/issues/92))
+
 ## [0.0.18] – 2026-05-07
 
 A faster cold launch, snappier file switches, and a temporary step back on syntax highlighting while a non-blocking solution is built.
