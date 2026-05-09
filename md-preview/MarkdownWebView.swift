@@ -64,6 +64,7 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     override init(frame frameRect: NSRect) {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(assetScheme, forURLScheme: MarkdownAssetScheme.scheme)
+        config.userContentController.addUserScript(Self.disableContextMenuScript)
         config.userContentController.add(messageBridge, name: HostBridge.name)
         webView = NonScrollingWKWebView(frame: .zero, configuration: config)
         super.init(frame: frameRect)
@@ -84,6 +85,14 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
             self?.warmupVendors()
         }
     }
+
+    private static let disableContextMenuScript = WKUserScript(
+        source: """
+        document.addEventListener('contextmenu', event => event.preventDefault(), true);
+        """,
+        injectionTime: .atDocumentStart,
+        forMainFrameOnly: true
+    )
 
     /// Synthetic markdown that flips every renderer flag (math + mermaid +
     /// code). Loaded into the WebView at launch so the heavy vendor JS is
