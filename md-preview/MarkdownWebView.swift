@@ -751,6 +751,12 @@ private final class NonScrollingWKWebView: WKWebView {
         super.doCommand(by: selector)
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        menu?.items.removeAll { $0.action == #selector(WKWebView.reload(_:)) }
+        return menu
+    }
+
     override func scrollLineUp(_ sender: Any?)            { forwardScrollAction(.lineUp) }
     override func scrollLineDown(_ sender: Any?)          { forwardScrollAction(.lineDown) }
     override func scrollPageUp(_ sender: Any?)            { forwardScrollAction(.pageUp) }
