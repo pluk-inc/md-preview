@@ -6,12 +6,18 @@
     <true/>
     <key>com.apple.security.files.user-selected.read-only</key>
     <true/>
-    <key>com.apple.security.files.bookmarks.app-scope</key>
-    <true/>
     <key>com.apple.security.network.client</key>
     <true/>
     <key>com.apple.security.print</key>
     <true/>
+    <!-- Read-only access to the entire filesystem so the project navigator
+         can enumerate sibling folders and resolve relative assets without
+         per-folder Powerbox prompts. Same pattern the Quick Look extension
+         uses. Writes still go through the sandbox + NSSavePanel. -->
+    <key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
+    <array>
+        <string>/</string>
+    </array>
     <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
     <array>
         <string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>

@@ -9,12 +9,17 @@ final class MainSplitViewController: NSSplitViewController {
 
     private static let didSeedKey = "MainSplitView.didSeedInitialState"
 
+    var onSelectFile: ((URL) -> Void)?
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
         let sidebarVC = SidebarViewController()
         sidebarVC.onSelectHeading = { [weak self] index in
             self?.contentViewController?.scrollToHeading(index: index)
+        }
+        sidebarVC.onSelectFile = { [weak self] url in
+            self?.onSelectFile?(url)
         }
         let sidebar = NSSplitViewItem(sidebarWithViewController: sidebarVC)
         sidebar.minimumThickness = 180
@@ -40,7 +45,7 @@ final class MainSplitViewController: NSSplitViewController {
 
     func display(markdown: String, fileName: String, url: URL?, assetBaseURL: URL?) {
         contentViewController?.display(markdown: markdown, assetBaseURL: assetBaseURL)
-        sidebarViewController?.display(markdown: markdown, fileName: fileName)
+        sidebarViewController?.display(markdown: markdown, fileName: fileName, fileURL: url)
         inspectorViewController?.display(metadata: DocumentMetadata.make(url: url, markdown: markdown))
     }
 
@@ -72,6 +77,31 @@ final class MainSplitViewController: NSSplitViewController {
         let shouldShow = inspector.isCollapsed
         inspector.animator().isCollapsed = !shouldShow
         return shouldShow
+    }
+
+    var isSidebarVisible: Bool {
+        !(splitViewItems.first?.isCollapsed ?? true)
+    }
+
+    @discardableResult
+    func toggleSidebar() -> Bool {
+        guard let sidebar = splitViewItems.first else { return false }
+        let shouldShow = sidebar.isCollapsed
+        sidebar.animator().isCollapsed = !shouldShow
+        return shouldShow
+    }
+
+    func showSidebar() {
+        guard let sidebar = splitViewItems.first, sidebar.isCollapsed else { return }
+        sidebar.animator().isCollapsed = false
+    }
+
+    var sidebarMode: SidebarViewController.Mode {
+        sidebarViewController?.currentMode ?? .outline
+    }
+
+    func setSidebarMode(_ mode: SidebarViewController.Mode) {
+        sidebarViewController?.setMode(mode)
     }
 
     private var sidebarViewController: SidebarViewController? {
