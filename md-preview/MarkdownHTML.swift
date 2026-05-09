@@ -40,7 +40,8 @@ enum MarkdownHTML {
     static func render(markdown: String,
                        allowsScroll: Bool = false,
                        assetBaseHref: String? = nil,
-                       vendorLoading: VendorLoading = .inline) -> RenderedHTML {
+                       vendorLoading: VendorLoading = .inline,
+                       warmup: Bool = false) -> RenderedHTML {
         let body = MarkdownFrontmatter.split(markdown).body
         let footnotes = extractFootnotes(from: body)
         let math = extractMath(from: footnotes.markdown)
@@ -63,6 +64,13 @@ enum MarkdownHTML {
         let mathBlock = containsMath ? katexHead(mode: vendorLoading) : ""
         let mermaidBlock = containsMermaid ? mermaidScript(mode: vendorLoading) : ""
         let highlightBlock = containsCode ? highlightHead(mode: vendorLoading) : ""
+        // Warmup keeps the article in layout (so Mermaid's IntersectionObserver
+        // still fires and the renderer actually executes) but invisible —
+        // otherwise the synthetic diagram flashes on screen before the first
+        // real document arrives. `MdPreview.update` clears the inline style.
+        let articleStyle = warmup
+            ? " style=\"opacity:0;pointer-events:none\""
+            : ""
         let html = """
         <!DOCTYPE html>
         <html>
@@ -78,7 +86,7 @@ enum MarkdownHTML {
         \(highlightBlock)
         </head>
         <body>
-        <article class="markdown-body">
+        <article class="markdown-body"\(articleStyle)>
         \(bodyHTML)
         </article>
         </body>
@@ -800,6 +808,9 @@ enum MarkdownHTML {
             if (!article) return;
             const tStart = perfNow();
             article.innerHTML = articleHTML;
+            // Reveal the article if the warmup render hid it.
+            article.style.opacity = '';
+            article.style.pointerEvents = '';
             if (articleHTML) {
                 for (const fn of reappliers) {
                     try { fn(); } catch (e) { /* one bad apple shouldn't block others */ }

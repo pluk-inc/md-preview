@@ -97,7 +97,8 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         let baseHref = "\(MarkdownAssetScheme.scheme):///"
         let rendered = MarkdownHTML.render(markdown: Self.warmupMarkdown,
                                            assetBaseHref: baseHref,
-                                           vendorLoading: .lazy)
+                                           vendorLoading: .lazy,
+                                           warmup: true)
         loadedFingerprint = RendererFingerprint(
             math: rendered.containsMath,
             mermaid: rendered.containsMermaid,
