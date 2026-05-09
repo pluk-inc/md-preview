@@ -58,10 +58,13 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     // without waiting for JS to post a fresh value (it won't — scrollHeight
     // is invariant under pageZoom).
     private var lastReportedDocumentHeight: CGFloat = 1
+    private var zoomDefaultsKey: String?
+    private var currentMarkdown: String?
 
     override init(frame frameRect: NSRect) {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(assetScheme, forURLScheme: MarkdownAssetScheme.scheme)
+        config.userContentController.addUserScript(Self.disableContextMenuScript)
         config.userContentController.add(messageBridge, name: HostBridge.name)
         webView = NonScrollingWKWebView(frame: .zero, configuration: config)
         super.init(frame: frameRect)
@@ -82,6 +85,18 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
             self?.warmupVendors()
         }
     }
+
+    private static let disableContextMenuScript = WKUserScript(
+        source: """
+        document.addEventListener('contextmenu', event => {
+            const selection = window.getSelection();
+            if (selection && selection.toString().trim().length > 0) return;
+            event.preventDefault();
+        }, true);
+        """,
+        injectionTime: .atDocumentStart,
+        forMainFrameOnly: true
+    )
 
     /// Synthetic markdown that flips every renderer flag (math + mermaid +
     /// code). Loaded into the WebView at launch so the heavy vendor JS is
@@ -145,6 +160,7 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     }
 
     func display(markdown: String, assetBaseURL: URL? = nil) {
+        currentMarkdown = markdown
         assetScheme.setBaseURL(assetBaseURL)
         currentAssetBase = assetBaseURL
         let baseHref = "\(MarkdownAssetScheme.scheme):///"
@@ -205,6 +221,11 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         webView.loadHTMLString(rendered.html, baseURL: nil)
         loadedFingerprint = fingerprint
         isPageReady = false
+    }
+
+    func reloadPreview() {
+        guard let currentMarkdown else { return }
+        display(markdown: currentMarkdown, assetBaseURL: currentAssetBase)
     }
 
     fileprivate func didReceiveHostMessage(_ body: Any) {
@@ -276,6 +297,12 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     func zoomOut() { setPageZoom(nextZoomStep(from: webView.pageZoom, increasing: false)) }
     func resetZoom() { setPageZoom(1.0) }
 
+    func enablePersistentZoom(defaultsKey: String) {
+        zoomDefaultsKey = defaultsKey
+        guard let stored = UserDefaults.standard.object(forKey: defaultsKey) as? NSNumber else { return }
+        setPageZoom(CGFloat(truncating: stored), persist: false, notifyHeight: false)
+    }
+
     private func nextZoomStep(from current: CGFloat, increasing: Bool) -> CGFloat {
         let steps = Self.zoomSteps
         if increasing {
@@ -285,11 +312,32 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         }
     }
 
-    private func setPageZoom(_ value: CGFloat) {
-        let clamped = max(Self.zoomSteps.first!, min(Self.zoomSteps.last!, value))
+    private func setPageZoom(_ value: CGFloat,
+                             persist: Bool = true,
+                             notifyHeight: Bool = true) {
+        let clamped = clampedZoom(value)
         guard abs(webView.pageZoom - clamped) > 0.001 else { return }
         webView.pageZoom = clamped
-        heightDidChange?(lastReportedDocumentHeight * clamped)
+        if persist {
+            persistPageZoom(clamped)
+        }
+        if notifyHeight {
+            heightDidChange?(lastReportedDocumentHeight * clamped)
+        }
+    }
+
+    private func clampedZoom(_ value: CGFloat) -> CGFloat {
+        guard value.isFinite else { return 1.0 }
+        return max(Self.zoomSteps.first!, min(Self.zoomSteps.last!, value))
+    }
+
+    private func persistPageZoom(_ value: CGFloat) {
+        guard let zoomDefaultsKey else { return }
+        if abs(value - 1.0) <= 0.001 {
+            UserDefaults.standard.removeObject(forKey: zoomDefaultsKey)
+        } else {
+            UserDefaults.standard.set(Double(value), forKey: zoomDefaultsKey)
+        }
     }
 
     func printDocument(from window: NSWindow) {
@@ -723,6 +771,21 @@ private final class NonScrollingWKWebView: WKWebView {
         super.doCommand(by: selector)
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        menu?.removeWebKitReloadItems()
+        return menu
+    }
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        menu.removeWebKitReloadItems()
+        super.willOpenMenu(menu, with: event)
+    }
+
+    override func reload(_ sender: Any?) {
+        (superview as? MarkdownWebView)?.reloadPreview()
+    }
+
     override func scrollLineUp(_ sender: Any?)            { forwardScrollAction(.lineUp) }
     override func scrollLineDown(_ sender: Any?)          { forwardScrollAction(.lineDown) }
     override func scrollPageUp(_ sender: Any?)            { forwardScrollAction(.pageUp) }
@@ -837,6 +900,15 @@ private final class NonScrollingWKWebView: WKWebView {
 
         lockedAxis = nil
         return perEvent
+    }
+}
+
+private extension NSMenu {
+    func removeWebKitReloadItems() {
+        for item in items {
+            item.submenu?.removeWebKitReloadItems()
+        }
+        items.removeAll { $0.action == #selector(WKWebView.reload(_:)) }
     }
 }
 
