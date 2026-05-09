@@ -53,6 +53,11 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     // Bumped on every display() call so a slower render finishing after a
     // newer one is dropped instead of clobbering the latest article.
     private var renderGeneration: UInt64 = 0
+    // Last unzoomed document height reported by the page (CSS pixels). Cached
+    // so a pageZoom change can re-fire heightDidChange with the right scale
+    // without waiting for JS to post a fresh value (it won't — scrollHeight
+    // is invariant under pageZoom).
+    private var lastReportedDocumentHeight: CGFloat = 1
 
     override init(frame frameRect: NSRect) {
         let config = WKWebViewConfiguration()
@@ -208,7 +213,9 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         switch kind {
         case "height":
             guard let value = dict["value"] as? NSNumber else { return }
-            heightDidChange?(ceil(CGFloat(truncating: value)))
+            let raw = ceil(CGFloat(truncating: value))
+            lastReportedDocumentHeight = raw
+            heightDidChange?(raw * webView.pageZoom)
         case "log":
             // MdPreviewPerf.log() — debug-only; release builds never post.
             // Routed through os.Logger so `log stream --level=debug
@@ -256,6 +263,35 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         })();
         """
         webView.evaluateJavaScript(script) { _, _ in }
+    }
+
+    // Discrete zoom stops, mirroring Safari's ⌘+/⌘− cadence.
+    private static let zoomSteps: [CGFloat] = [
+        0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0
+    ]
+
+    var pageZoom: CGFloat { webView.pageZoom }
+    var canZoomIn: Bool { webView.pageZoom < (Self.zoomSteps.last ?? 3.0) - 0.001 }
+    var canZoomOut: Bool { webView.pageZoom > (Self.zoomSteps.first ?? 0.5) + 0.001 }
+
+    func zoomIn() { setPageZoom(nextZoomStep(from: webView.pageZoom, increasing: true)) }
+    func zoomOut() { setPageZoom(nextZoomStep(from: webView.pageZoom, increasing: false)) }
+    func resetZoom() { setPageZoom(1.0) }
+
+    private func nextZoomStep(from current: CGFloat, increasing: Bool) -> CGFloat {
+        let steps = Self.zoomSteps
+        if increasing {
+            return steps.first(where: { $0 > current + 0.001 }) ?? steps.last!
+        } else {
+            return steps.last(where: { $0 < current - 0.001 }) ?? steps.first!
+        }
+    }
+
+    private func setPageZoom(_ value: CGFloat) {
+        let clamped = max(Self.zoomSteps.first!, min(Self.zoomSteps.last!, value))
+        guard abs(webView.pageZoom - clamped) > 0.001 else { return }
+        webView.pageZoom = clamped
+        heightDidChange?(lastReportedDocumentHeight * clamped)
     }
 
     func printDocument(from window: NSWindow) {

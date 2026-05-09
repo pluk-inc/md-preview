@@ -67,6 +67,18 @@ final class MainSplitViewController: NSSplitViewController {
         contentViewController?.printDocument()
     }
 
+    @IBAction func zoomInDocument(_ sender: Any?) {
+        contentViewController?.zoomIn()
+    }
+
+    @IBAction func zoomOutDocument(_ sender: Any?) {
+        contentViewController?.zoomOut()
+    }
+
+    @IBAction func resetDocumentZoom(_ sender: Any?) {
+        contentViewController?.resetZoom()
+    }
+
     var isInspectorVisible: Bool {
         !(splitViewItems.last?.isCollapsed ?? true)
     }
