@@ -587,6 +587,44 @@ private final class NonScrollingWKWebView: WKWebView {
     private enum Axis { case horizontal, vertical }
     private var lockedAxis: Axis?
 
+    override func keyDown(with event: NSEvent) {
+        if forwardScrollKey(event) { return }
+        super.keyDown(with: event)
+    }
+
+    /// Routes Page Up/Down and Up/Down arrow keys to the outer NSScrollView,
+    /// since WKWebView's internal scrolling is disabled. Mirrors what
+    /// `scrollWheel(with:)` does for trackpad/mouse events.
+    private func forwardScrollKey(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+              let outerScrollView = superview?.enclosingScrollView,
+              let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first
+        else { return false }
+
+        let clipView = outerScrollView.contentView
+        let pageDelta = max(clipView.bounds.height * 0.9, 40)
+        let lineDelta: CGFloat = 40
+
+        let delta: CGFloat
+        switch Int(scalar.value) {
+        case NSPageUpFunctionKey:    delta = -pageDelta
+        case NSPageDownFunctionKey:  delta = pageDelta
+        case NSUpArrowFunctionKey:   delta = -lineDelta
+        case NSDownArrowFunctionKey: delta = lineDelta
+        default: return false
+        }
+
+        let documentHeight = outerScrollView.documentView?.bounds.height ?? clipView.bounds.height
+        let topInset = clipView.contentInsets.top
+        let bottomInset = clipView.contentInsets.bottom
+        let minY = -topInset
+        let maxY = max(documentHeight - clipView.bounds.height + bottomInset, minY)
+        let target = max(minY, min(clipView.bounds.origin.y + delta, maxY))
+        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: target))
+        outerScrollView.reflectScrolledClipView(clipView)
+        return true
+    }
+
     override func scrollWheel(with event: NSEvent) {
         let axis = decideAxis(for: event)
         if axis == .horizontal {
