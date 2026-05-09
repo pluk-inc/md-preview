@@ -209,7 +209,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
                  itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .sidebarMenu: return makeSidebarMenuItem()
+        case .sidebarMenu: return makeSidebarMenuItem(willBeInsertedIntoToolbar: flag)
         case .openWith: return makeOpenWithItem()
         case .inspector: return makeInspectorItem()
         case .share: return makeShareItem()
@@ -221,7 +221,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         }
     }
 
-    private func makeSidebarMenuItem() -> NSToolbarItem {
+    private func makeSidebarMenuItem(willBeInsertedIntoToolbar: Bool) -> NSToolbarItem {
         let item = NSToolbarItem(itemIdentifier: .sidebarMenu)
         item.label = "Sidebar"
         item.paletteLabel = "Sidebar"
@@ -255,14 +255,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         ])
 
         item.view = container
-        sidebarMenu = menu
-        sidebarPopUpButton = popup
+        if willBeInsertedIntoToolbar {
+            sidebarMenu = menu
+            sidebarPopUpButton = popup
+            syncSidebarMenuState()
+        }
         return item
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu === sidebarMenu else { return }
         rebuildSidebarMenu(menu)
+        syncSidebarMenuState()
     }
 
     private func rebuildSidebarMenu(_ menu: NSMenu) {
@@ -275,30 +279,52 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         face.image = sidebarFaceImage()
         menu.addItem(face)
 
-        let split = window.contentViewController as? MainSplitViewController
-        let sidebarVisible = split?.isSidebarVisible ?? false
-        let mode = split?.sidebarMode ?? .outline
-
         let hide = NSMenuItem(title: "Hide Sidebar",
                               action: #selector(hideSidebarFromMenu(_:)),
                               keyEquivalent: "")
         hide.target = self
-        hide.state = sidebarVisible ? .off : .on
         menu.addItem(hide)
 
         let outline = NSMenuItem(title: "Table of Contents",
                                  action: #selector(selectOutlineMode(_:)),
                                  keyEquivalent: "")
         outline.target = self
-        outline.state = (sidebarVisible && mode == .outline) ? .on : .off
         menu.addItem(outline)
 
         let files = NSMenuItem(title: "Project Navigator",
                                action: #selector(selectFilesMode(_:)),
                                keyEquivalent: "")
         files.target = self
-        files.state = (sidebarVisible && mode == .files) ? .on : .off
         menu.addItem(files)
+        syncSidebarMenuState(for: menu)
+    }
+
+    private func syncSidebarMenuState() {
+        syncSidebarViewMenuState()
+        if let sidebarMenu {
+            syncSidebarMenuState(for: sidebarMenu)
+        }
+    }
+
+    private func syncSidebarViewMenuState() {
+        let state = currentSidebarMenuState()
+        hideSidebarMenuItem?.state = state.sidebarVisible ? .off : .on
+        outlineMenuItem?.state = (state.sidebarVisible && state.mode == .outline) ? .on : .off
+        filesMenuItem?.state = (state.sidebarVisible && state.mode == .files) ? .on : .off
+    }
+
+    private func syncSidebarMenuState(for menu: NSMenu) {
+        let state = currentSidebarMenuState()
+        menu.items.first { $0.action == #selector(hideSidebarFromMenu(_:)) }?.state = state.sidebarVisible ? .off : .on
+        menu.items.first { $0.action == #selector(selectOutlineMode(_:)) }?.state = (state.sidebarVisible && state.mode == .outline) ? .on : .off
+        menu.items.first { $0.action == #selector(selectFilesMode(_:)) }?.state = (state.sidebarVisible && state.mode == .files) ? .on : .off
+    }
+
+    private func currentSidebarMenuState() -> (sidebarVisible: Bool, mode: SidebarViewController.Mode) {
+        let split = window.contentViewController as? MainSplitViewController
+        let sidebarVisible = split?.isSidebarVisible ?? false
+        let mode = split?.sidebarMode ?? .outline
+        return (sidebarVisible, mode)
     }
 
     private func sidebarFaceImage() -> NSImage {
@@ -310,24 +336,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
 
     @objc private func toggleSidebarFromMenu(_ sender: Any?) {
         (window.contentViewController as? MainSplitViewController)?.toggleSidebar()
+        syncSidebarMenuState()
     }
 
     @objc private func hideSidebarFromMenu(_ sender: Any?) {
         guard let split = window.contentViewController as? MainSplitViewController,
               split.isSidebarVisible else { return }
         split.toggleSidebar()
+        syncSidebarMenuState()
     }
 
     @objc private func selectOutlineMode(_ sender: Any?) {
         guard let split = window.contentViewController as? MainSplitViewController else { return }
         split.setSidebarMode(.outline)
         split.showSidebar()
+        syncSidebarMenuState()
     }
 
     @objc private func selectFilesMode(_ sender: Any?) {
         guard let split = window.contentViewController as? MainSplitViewController else { return }
         split.setSidebarMode(.files)
         split.showSidebar()
+        syncSidebarMenuState()
     }
 
     private func installGoMenu() {
@@ -483,17 +513,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let split = window.contentViewController as? MainSplitViewController
-        let sidebarVisible = split?.isSidebarVisible ?? false
-        let mode = split?.sidebarMode ?? .outline
-
-        if menuItem === hideSidebarMenuItem {
-            menuItem.state = sidebarVisible ? .off : .on
-        } else if menuItem === outlineMenuItem {
-            menuItem.state = (sidebarVisible && mode == .outline) ? .on : .off
-        } else if menuItem === filesMenuItem {
-            menuItem.state = (sidebarVisible && mode == .files) ? .on : .off
-        }
+        syncSidebarMenuState()
         return true
     }
 

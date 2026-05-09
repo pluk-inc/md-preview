@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.20] – 2026-05-09
+
+The sidebar toolbar menu now stays responsive and shows the correct selected mode after toolbar customization.
+
+### Fixed
+
+- **Sidebar mode menu survives toolbar customization.** The toolbar's Sidebar pull-down no longer lets Customize Toolbar palette copies steal the live menu reference, so Table of Contents and Project Navigator keep responding and their checkmarks stay in sync after closing the native customization sheet.
+
 ## [0.0.19] – 2026-05-09
 
 Syntax highlighting is back without the Shiki startup cost, the sidebar can browse sibling Markdown files, and preview reading controls are easier to reach.
