@@ -359,22 +359,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         let menu = NSMenu(title: "Go")
 
         menu.addItem(makeItem("Up",
-                              action: #selector(MarkdownWebView.mdScrollLineUp(_:)),
+                              action: #selector(NSResponder.scrollLineUp(_:)),
                               keyEquivalent: arrow(NSUpArrowFunctionKey),
                               modifiers: [],
                               symbol: "arrow.up"))
         menu.addItem(makeItem("Down",
-                              action: #selector(MarkdownWebView.mdScrollLineDown(_:)),
+                              action: #selector(NSResponder.scrollLineDown(_:)),
                               keyEquivalent: arrow(NSDownArrowFunctionKey),
                               modifiers: [],
                               symbol: "arrow.down"))
         menu.addItem(makeItem("Page Up",
-                              action: #selector(MarkdownWebView.mdScrollPageUp(_:)),
+                              action: #selector(NSResponder.scrollPageUp(_:)),
                               keyEquivalent: arrow(NSPageUpFunctionKey),
                               modifiers: [],
                               symbol: "chevron.up.square"))
         menu.addItem(makeItem("Page Down",
-                              action: #selector(MarkdownWebView.mdScrollPageDown(_:)),
+                              action: #selector(NSResponder.scrollPageDown(_:)),
                               keyEquivalent: arrow(NSPageDownFunctionKey),
                               modifiers: [],
                               symbol: "chevron.down.square"))
@@ -395,12 +395,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
         menu.addItem(.separator())
 
         menu.addItem(makeItem("Top of Document",
-                              action: #selector(MarkdownWebView.mdScrollToTop(_:)),
+                              action: #selector(NSResponder.scrollToBeginningOfDocument(_:)),
                               keyEquivalent: arrow(NSUpArrowFunctionKey),
                               modifiers: .command,
                               symbol: "arrow.up.to.line"))
         menu.addItem(makeItem("Bottom of Document",
-                              action: #selector(MarkdownWebView.mdScrollToBottom(_:)),
+                              action: #selector(NSResponder.scrollToEndOfDocument(_:)),
                               keyEquivalent: arrow(NSDownArrowFunctionKey),
                               modifiers: .command,
                               symbol: "arrow.down.to.line"))
