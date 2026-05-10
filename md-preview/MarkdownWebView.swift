@@ -31,10 +31,6 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     let webView: WKWebView
     var heightDidChange: ((CGFloat) -> Void)?
     var fragmentLinkActivated: ((String) -> Void)?
-    /// Keyboard / menu-driven scroll. Trackpad and wheel are not reported
-    /// here — observe `NSScrollView.willStartLiveScrollNotification` for
-    /// those. Programmatic scrolls (TOC click, find) bypass this entirely.
-    var userScrollDidStart: (() -> Void)?
     private let assetScheme = MarkdownAssetScheme()
     private var currentAssetBase: URL?
     private let messageBridge = HostBridge()
@@ -590,8 +586,6 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
     @discardableResult
     func performScrollAction(_ action: ScrollAction) -> Bool {
         guard let scrollView = enclosingScrollView else { return false }
-        // Sole entry point for keyboard / menu scroll actions.
-        userScrollDidStart?()
         let clipView = scrollView.contentView
         let documentHeight = scrollView.documentView?.bounds.height ?? clipView.bounds.height
         let topInset = clipView.contentInsets.top

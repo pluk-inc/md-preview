@@ -23,18 +23,23 @@ final class ContentViewController: NSViewController {
     private var pendingHeadingOffsetsRefresh: DispatchWorkItem?
 
     // Sidebar-click pin. Bounds events are ignored until `holdUntil`
-    // (covers our own animation); the next bounds event after that is
-    // user input → release. No bounds event ever firing (short doc, no
-    // movement) → pin stays, which is the desired feedback.
+    // (covers our own animation), then we measure scroll distance from
+    // `anchor` (the click's target scroll position). Tiny moves —
+    // rubber-band, small scrolls on near-fitting docs — stay below the
+    // release threshold so the pin survives them. A doc that can't scroll
+    // at all never even fires bounds events, so the pin sits forever.
     private var sticky: StickyPin?
     private struct StickyPin {
         let headingID: Int
         let holdUntil: DispatchTime
+        let anchor: CGFloat
     }
-    /// Covers `scrollDocument`'s 0.25s animation plus JS round-trip;
-    /// short enough that a scroll kicked off right after a click still
-    /// feels responsive.
+    /// Covers `scrollDocument`'s 0.25s animation plus JS round-trip.
     private static let stickyHoldDuration: DispatchTimeInterval = .milliseconds(350)
+    /// Viewport fraction the user must scroll past the pin's anchor to
+    /// release it. ⅓ feels sticky enough for incidental moves but lets
+    /// genuine page-scrolls take over.
+    private static let stickyReleaseFraction: CGFloat = 1.0 / 3.0
 
     var activeHeadingDidChange: ((Int?) -> Void)?
 
@@ -61,9 +66,6 @@ final class ContentViewController: NSViewController {
         webView.fragmentLinkActivated = { [weak self] fragment in
             self?.scrollToElement(id: fragment)
         }
-        webView.userScrollDidStart = { [weak self] in
-            self?.clearStickyAndReevaluate()
-        }
         webView.enablePersistentZoom(defaultsKey: Self.pageZoomDefaultsKey)
 
         documentView.addSubview(webView)
@@ -71,9 +73,11 @@ final class ContentViewController: NSViewController {
         view = scrollView
 
         // The WKWebView is sized to full document height with internal
-        // scrolling disabled — all scroll happens at the clip view, so the
-        // scrollspy listens here. queue: .main lets `assumeIsolated` hop
-        // cleanly under Swift 6.
+        // scrolling disabled — all scroll happens at the clip view. The
+        // scrollspy listens for actual position changes (not gesture-begin
+        // signals), so a trackpad gesture that can't scroll the doc — short
+        // doc — leaves a click pin intact. queue: .main lets `assumeIsolated`
+        // hop cleanly under Swift 6.
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
@@ -81,13 +85,6 @@ final class ContentViewController: NSViewController {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.evaluateActiveHeading() }
-        }
-        NotificationCenter.default.addObserver(
-            forName: NSScrollView.willStartLiveScrollNotification,
-            object: scrollView,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.clearStickyAndReevaluate() }
         }
 
         documentHeightConstraint = documentView.heightAnchor.constraint(equalToConstant: 1)
@@ -198,18 +195,36 @@ final class ContentViewController: NSViewController {
     }
 
     /// Pin a heading active immediately so even a no-op scroll (last
-    /// heading on a short doc) gives feedback. Released on the next
-    /// bounds change after the click-animation window expires.
+    /// heading on a short doc) gives feedback. The pin survives small
+    /// scroll movements; only a viewport-fraction scroll away from where
+    /// the click landed releases it.
     func markHeadingActiveFromClick(_ headingID: Int) {
+        let anchor = expectedScrollPosition(forHeading: headingID)
+            ?? (view as? NSScrollView)?.contentView.bounds.origin.y
+            ?? 0
         sticky = StickyPin(headingID: headingID,
-                           holdUntil: .now() + Self.stickyHoldDuration)
+                           holdUntil: .now() + Self.stickyHoldDuration,
+                           anchor: anchor)
         notifyActiveHeading(headingID)
     }
 
-    private func clearStickyAndReevaluate() {
-        guard sticky != nil else { return }
-        sticky = nil
-        evaluateActiveHeading()
+    /// Where `scrollDocument` would land for `headingID` — the same
+    /// clamped target the click animation aims at. Used as the pin's
+    /// distance reference.
+    private func expectedScrollPosition(forHeading headingID: Int) -> CGFloat? {
+        guard headingID >= 0,
+              headingID < headingOffsetsCSS.count,
+              let scrollView = view as? NSScrollView else { return nil }
+        let clipView = scrollView.contentView
+        let zoom = max(webView.pageZoom, 0.001)
+        let topInset = clipView.contentInsets.top
+        let bottomInset = clipView.contentInsets.bottom
+        let topMargin: CGFloat = 12
+        let y = headingOffsetsCSS[headingID] * zoom
+        let minY = -topInset
+        let maxY = max(documentHeightConstraint.constant - clipView.bounds.height + bottomInset,
+                       minY)
+        return max(minY, min(y - topInset - topMargin, maxY))
     }
 
     private func scrollToElement(id: String) {
@@ -275,11 +290,17 @@ final class ContentViewController: NSViewController {
     private func evaluateActiveHeading() {
         if let pin = sticky {
             if DispatchTime.now() < pin.holdUntil { return }
-            // Hold expired and a bounds change still arrived → user input,
-            // release the pin and follow the new position.
+            if !hasMovedFar(from: pin.anchor) { return }
             sticky = nil
         }
         notifyActiveHeading(computeActiveHeadingID())
+    }
+
+    private func hasMovedFar(from anchor: CGFloat) -> Bool {
+        guard let scrollView = view as? NSScrollView else { return true }
+        let clipView = scrollView.contentView
+        let delta = abs(clipView.bounds.origin.y - anchor)
+        return delta >= clipView.bounds.height * Self.stickyReleaseFraction
     }
 
     /// Last heading whose top has scrolled above the activation line.
