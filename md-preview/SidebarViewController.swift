@@ -139,7 +139,14 @@ final class SidebarViewController: NSViewController {
 
         // Defer folder enumeration until the user actually switches to the
         // Project Navigator — saves the disk walk on every TOC-mode open.
-        pendingFolderURL = fileURL?.deletingLastPathComponent()
+        // Keep the existing root if the new file is a descendant; otherwise
+        // reset so File → Open of an unrelated file still updates the tree.
+        let parent = fileURL?.deletingLastPathComponent()
+        if let parent, let current = loadedFolderURL, parent.isDescendantOrSame(of: current) {
+            pendingFolderURL = current
+        } else {
+            pendingFolderURL = parent
+        }
         pendingFileURL = fileURL
         if currentMode == .files {
             refreshNavigatorIfNeeded()
@@ -154,6 +161,53 @@ final class SidebarViewController: NSViewController {
         for root in roots {
             outlineView.expandItem(root, expandChildren: true)
         }
+        outlineView.deselectAll(nil)
+    }
+
+    /// Highlights the matching TOC row. Selecting via the API doesn't
+    /// dispatch the outline's action, so this won't loop back into
+    /// `onSelectHeading`. We don't `scrollRowToVisible` — yanking the
+    /// sidebar while the user scrolls the doc feels jumpy.
+    func setActiveHeading(_ headingID: Int?) {
+        loadViewIfNeeded()
+        guard let headingID,
+              let node = findNode(withID: headingID, in: roots) else {
+            outlineView.deselectAll(nil)
+            return
+        }
+        for ancestor in ancestors(of: node, in: roots) {
+            outlineView.expandItem(ancestor)
+        }
+        let row = outlineView.row(forItem: node)
+        guard row >= 0, outlineView.selectedRow != row else { return }
+        outlineView.selectRowIndexes(IndexSet(integer: row),
+                                     byExtendingSelection: false)
+    }
+
+    private func findNode(withID id: Int, in nodes: [TOCNode]) -> TOCNode? {
+        for node in nodes {
+            if node.headingID == id { return node }
+            if let hit = findNode(withID: id, in: node.children) { return hit }
+        }
+        return nil
+    }
+
+    private func ancestors(of target: TOCNode, in nodes: [TOCNode]) -> [TOCNode] {
+        var path: [TOCNode] = []
+        func walk(_ node: TOCNode) -> Bool {
+            if node === target { return true }
+            for child in node.children {
+                path.append(node)
+                if walk(child) { return true }
+                path.removeLast()
+            }
+            return false
+        }
+        for root in nodes {
+            path = []
+            if walk(root) { return path }
+        }
+        return []
     }
 
     @objc private func rowClicked(_ sender: Any?) {
@@ -296,6 +350,11 @@ private final class FileNode {
 
     var displayName: String { url.lastPathComponent }
 
+    /// Children if `children()` has populated the cache; nil otherwise.
+    var cachedChildren: [FileNode]? { loadedChildren }
+
+    func invalidateCache() { loadedChildren = nil }
+
     func children() -> [FileNode] {
         if let cached = loadedChildren { return cached }
         guard isDirectory else {
@@ -328,6 +387,9 @@ final class ProjectNavigatorView: NSView {
     private let scrollView = NSScrollView()
     private let outlineView = NSOutlineView()
     private var rootNode: FileNode?
+    // One watcher per loaded directory; kept in sync with which FileNodes
+    // currently have a populated children cache.
+    private var watchers: [URL: DirectoryWatcher] = [:]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -379,11 +441,117 @@ final class ProjectNavigatorView: NSView {
     }
 
     func setRoot(_ url: URL?) {
+        cancelAllWatchers()
         rootNode = url.map { FileNode(url: $0, isDirectory: true) }
         outlineView.reloadData()
         if let rootNode {
             outlineView.expandItem(rootNode)
+            syncWatchers()
         }
+    }
+
+    // MARK: - Folder watching
+
+    private func syncWatchers() {
+        var live: Set<URL> = []
+        if let rootNode { collectLoadedDirectories(rootNode, into: &live) }
+        for url in live where watchers[url] == nil {
+            watchers[url] = DirectoryWatcher(url: url) { [weak self] in
+                self?.handleFolderChange()
+            }
+        }
+        for (url, watcher) in watchers where !live.contains(url) {
+            watcher.cancel()
+            watchers.removeValue(forKey: url)
+        }
+    }
+
+    private func collectLoadedDirectories(_ node: FileNode, into set: inout Set<URL>) {
+        guard node.isDirectory else { return }
+        set.insert(node.url.standardizedFileURL)
+        guard let kids = node.cachedChildren else { return }
+        for child in kids where child.isDirectory {
+            collectLoadedDirectories(child, into: &set)
+        }
+    }
+
+    private func cancelAllWatchers() {
+        for watcher in watchers.values { watcher.cancel() }
+        watchers.removeAll()
+    }
+
+    private func handleFolderChange() {
+        // Snapshot expansion and selection so the user's view survives the reload.
+        let expandedURLs = collectExpandedURLs()
+        let selectedURL = currentlySelectedURL()
+
+        if let rootNode { invalidateCaches(rootNode) }
+        outlineView.reloadData()
+
+        if let rootNode {
+            outlineView.expandItem(rootNode)
+            reExpand(rootNode, expanded: expandedURLs)
+        }
+        if let selectedURL,
+           let rootNode,
+           let target = findNode(in: rootNode, matching: selectedURL) {
+            let row = outlineView.row(forItem: target)
+            if row >= 0 {
+                outlineView.selectRowIndexes(IndexSet(integer: row),
+                                             byExtendingSelection: false)
+            }
+        }
+        syncWatchers()
+    }
+
+    private func invalidateCaches(_ node: FileNode) {
+        guard node.isDirectory, let kids = node.cachedChildren else { return }
+        for child in kids where child.isDirectory {
+            invalidateCaches(child)
+        }
+        node.invalidateCache()
+    }
+
+    private func collectExpandedURLs() -> Set<URL> {
+        var result: Set<URL> = []
+        func walk(_ item: Any?) {
+            let count = outlineView.numberOfChildren(ofItem: item)
+            for i in 0..<count {
+                let child = outlineView.child(i, ofItem: item)
+                if let node = child as? FileNode, outlineView.isItemExpanded(node) {
+                    result.insert(node.url.standardizedFileURL)
+                    walk(child)
+                }
+            }
+        }
+        walk(nil)
+        return result
+    }
+
+    private func currentlySelectedURL() -> URL? {
+        let row = outlineView.selectedRow
+        guard row >= 0,
+              let node = outlineView.item(atRow: row) as? FileNode else { return nil }
+        return node.url.standardizedFileURL
+    }
+
+    private func reExpand(_ node: FileNode, expanded: Set<URL>) {
+        guard node.isDirectory else { return }
+        for child in node.children() where child.isDirectory {
+            if expanded.contains(child.url.standardizedFileURL) {
+                outlineView.expandItem(child)
+                reExpand(child, expanded: expanded)
+            }
+        }
+    }
+
+    private func findNode(in node: FileNode, matching target: URL) -> FileNode? {
+        if node.url.standardizedFileURL == target { return node }
+        guard node.isDirectory, let kids = node.cachedChildren else { return nil }
+        for child in kids {
+            if let hit = findNode(in: child, matching: target) { return hit }
+        }
+        return nil
     }
 
     func setCurrentFile(_ url: URL?) {
@@ -412,11 +580,8 @@ final class ProjectNavigatorView: NSView {
     private func collectPath(to targetURL: URL,
                              from root: FileNode,
                              into path: inout [FileNode]) -> Bool {
-        // Skip whole subtrees that can't contain the target — avoids enumerating
-        // sibling folders just to highlight one row.
-        let rootPath = root.url.standardizedFileURL.path
-        let target = targetURL.path
-        guard target == rootPath || target.hasPrefix(rootPath + "/") else { return false }
+        // Skip subtrees that can't contain the target.
+        guard targetURL.isDescendantOrSame(of: root.url) else { return false }
 
         for child in root.children() {
             if child.url.standardizedFileURL == targetURL {
@@ -588,5 +753,62 @@ extension ProjectNavigatorView: NSOutlineViewDelegate {
 
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
         return 24
+    }
+
+    func outlineViewItemDidExpand(_ notification: Notification) {
+        // Newly-loaded subtree needs its own watcher.
+        syncWatchers()
+    }
+}
+
+private extension URL {
+    func isDescendantOrSame(of other: URL) -> Bool {
+        let mine = standardizedFileURL.path
+        let root = other.standardizedFileURL.path
+        return mine == root || mine.hasPrefix(root + "/")
+    }
+}
+
+private final class DirectoryWatcher {
+    private let onChange: () -> Void
+    private var source: DispatchSourceFileSystemObject?
+    private var fileDescriptor: Int32 = -1
+    private var debounce: DispatchWorkItem?
+
+    init(url: URL, onChange: @escaping () -> Void) {
+        self.onChange = onChange
+        let fd = Darwin.open(url.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        fileDescriptor = fd
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .delete, .rename, .revoke],
+            queue: .main
+        )
+        source.setEventHandler { [weak self] in self?.scheduleChange() }
+        source.setCancelHandler { [weak self] in
+            guard let self else { return }
+            if self.fileDescriptor >= 0 {
+                Darwin.close(self.fileDescriptor)
+                self.fileDescriptor = -1
+            }
+        }
+        self.source = source
+        source.resume()
+    }
+
+    /// FS events arrive in bursts (Finder rewrites + xattr updates). Coalesce.
+    private func scheduleChange() {
+        debounce?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.onChange() }
+        debounce = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+    }
+
+    func cancel() {
+        debounce?.cancel()
+        source?.cancel()
+        source = nil
     }
 }

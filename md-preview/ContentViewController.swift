@@ -16,6 +16,28 @@ final class ContentViewController: NSViewController {
     private var lastLaidOutSize: NSSize = .zero
     private var pendingFlashWork: DispatchWorkItem?
 
+    // Heading top offsets in CSS pixels, indexed by heading id. Compared in
+    // CSS units so page zoom doesn't invalidate them.
+    private var headingOffsetsCSS: [CGFloat] = []
+    private var lastActiveHeadingID: Int?
+    private var pendingHeadingOffsetsRefresh: DispatchWorkItem?
+
+    // Sidebar-click pin. Bounds events are ignored until `holdUntil`
+    // (covers our own animation); the next bounds event after that is
+    // user input → release. No bounds event ever firing (short doc, no
+    // movement) → pin stays, which is the desired feedback.
+    private var sticky: StickyPin?
+    private struct StickyPin {
+        let headingID: Int
+        let holdUntil: DispatchTime
+    }
+    /// Covers `scrollDocument`'s 0.25s animation plus JS round-trip;
+    /// short enough that a scroll kicked off right after a click still
+    /// feels responsive.
+    private static let stickyHoldDuration: DispatchTimeInterval = .milliseconds(350)
+
+    var activeHeadingDidChange: ((Int?) -> Void)?
+
     override func loadView() {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -33,15 +55,40 @@ final class ContentViewController: NSViewController {
                   abs(height - self.measuredDocumentHeight) > 0.5 else { return }
             self.measuredDocumentHeight = height
             self.applyDocumentHeight()
+            // Image load / font reflow shifted layout — re-measure offsets.
+            self.scheduleHeadingOffsetsRefresh()
         }
         webView.fragmentLinkActivated = { [weak self] fragment in
             self?.scrollToElement(id: fragment)
+        }
+        webView.userScrollDidStart = { [weak self] in
+            self?.clearStickyAndReevaluate()
         }
         webView.enablePersistentZoom(defaultsKey: Self.pageZoomDefaultsKey)
 
         documentView.addSubview(webView)
         scrollView.documentView = documentView
         view = scrollView
+
+        // The WKWebView is sized to full document height with internal
+        // scrolling disabled — all scroll happens at the clip view, so the
+        // scrollspy listens here. queue: .main lets `assumeIsolated` hop
+        // cleanly under Swift 6.
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.evaluateActiveHeading() }
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSScrollView.willStartLiveScrollNotification,
+            object: scrollView,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.clearStickyAndReevaluate() }
+        }
 
         documentHeightConstraint = documentView.heightAnchor.constraint(equalToConstant: 1)
         webViewHeightConstraint = webView.heightAnchor.constraint(equalToConstant: 1)
@@ -70,11 +117,28 @@ final class ContentViewController: NSViewController {
     }
 
     func display(markdown: String, assetBaseURL: URL? = nil) {
+        resetScrollspy()
         webView.display(markdown: markdown, assetBaseURL: assetBaseURL)
+        scheduleHeadingOffsetsRefresh()
     }
 
     func clearContent() {
+        resetScrollspy()
         webView.clearContent()
+    }
+
+    /// Drops scrollspy state before a doc swap so the previous doc's
+    /// heading doesn't briefly stay marked.
+    private func resetScrollspy() {
+        headingOffsetsCSS = []
+        sticky = nil
+        notifyActiveHeading(nil)
+    }
+
+    private func notifyActiveHeading(_ headingID: Int?) {
+        guard headingID != lastActiveHeadingID else { return }
+        lastActiveHeadingID = headingID
+        activeHeadingDidChange?(headingID)
     }
 
     func find(_ query: String,
@@ -133,6 +197,21 @@ final class ContentViewController: NSViewController {
         }
     }
 
+    /// Pin a heading active immediately so even a no-op scroll (last
+    /// heading on a short doc) gives feedback. Released on the next
+    /// bounds change after the click-animation window expires.
+    func markHeadingActiveFromClick(_ headingID: Int) {
+        sticky = StickyPin(headingID: headingID,
+                           holdUntil: .now() + Self.stickyHoldDuration)
+        notifyActiveHeading(headingID)
+    }
+
+    private func clearStickyAndReevaluate() {
+        guard sticky != nil else { return }
+        sticky = nil
+        evaluateActiveHeading()
+    }
+
     private func scrollToElement(id: String) {
         webView.elementOffset(id: id) { [weak self] offset in
             guard let self, let offset else { return }
@@ -163,6 +242,71 @@ final class ContentViewController: NSViewController {
         documentHeightConstraint.constant = resolvedHeight
         webViewHeightConstraint.constant = resolvedHeight
         clampScrollPosition(toDocumentHeight: resolvedHeight)
+    }
+
+    // MARK: - Scrollspy
+
+    private static let headingOffsetsRefreshDelay: TimeInterval = 0.05
+    /// CSS-px window from the doc top in which a heading counts as the
+    /// "lead" — close enough that body padding alone is what kept it
+    /// below the activation line at scroll-top. Past this, the heading
+    /// must earn its highlight by being scrolled past.
+    private static let leadHeadingThreshold: CGFloat = 80
+
+    private func scheduleHeadingOffsetsRefresh() {
+        pendingHeadingOffsetsRefresh?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.refreshHeadingOffsets()
+        }
+        pendingHeadingOffsetsRefresh = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.headingOffsetsRefreshDelay, execute: work
+        )
+    }
+
+    private func refreshHeadingOffsets() {
+        webView.collectHeadingOffsets { [weak self] offsets in
+            guard let self else { return }
+            self.headingOffsetsCSS = offsets
+            self.evaluateActiveHeading()
+        }
+    }
+
+    private func evaluateActiveHeading() {
+        if let pin = sticky {
+            if DispatchTime.now() < pin.holdUntil { return }
+            // Hold expired and a bounds change still arrived → user input,
+            // release the pin and follow the new position.
+            sticky = nil
+        }
+        notifyActiveHeading(computeActiveHeadingID())
+    }
+
+    /// Last heading whose top has scrolled above the activation line.
+    /// Lead-heading bump handles the doc-starts-with-a-heading case;
+    /// short-doc-last-heading is handled by `markHeadingActiveFromClick`.
+    private func computeActiveHeadingID() -> Int? {
+        guard !headingOffsetsCSS.isEmpty,
+              let scrollView = view as? NSScrollView else { return nil }
+        let clipView = scrollView.contentView
+        let zoom = max(webView.pageZoom, 0.001)
+        let topMargin: CGFloat = 12
+        var activationLine = (clipView.bounds.origin.y
+                              + clipView.contentInsets.top
+                              + topMargin
+                              + 8) / zoom
+
+        if let firstOffset = headingOffsetsCSS.first,
+           firstOffset <= Self.leadHeadingThreshold,
+           activationLine < firstOffset + 1 {
+            activationLine = firstOffset + 1
+        }
+
+        var active: Int?
+        for (index, offset) in headingOffsetsCSS.enumerated() {
+            if offset <= activationLine { active = index } else { break }
+        }
+        return active
     }
 
     private func clampScrollPosition(toDocumentHeight documentHeight: CGFloat) {

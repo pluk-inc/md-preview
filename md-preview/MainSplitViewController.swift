@@ -16,6 +16,8 @@ final class MainSplitViewController: NSSplitViewController {
 
         let sidebarVC = SidebarViewController()
         sidebarVC.onSelectHeading = { [weak self] index in
+            // Pin before scrolling so a no-op scroll still confirms the click.
+            self?.contentViewController?.markHeadingActiveFromClick(index)
             self?.contentViewController?.scrollToHeading(index: index)
         }
         sidebarVC.onSelectFile = { [weak self] url in
@@ -41,6 +43,11 @@ final class MainSplitViewController: NSSplitViewController {
         addSplitViewItem(inspector)
 
         splitView.autosaveName = "MainSplitView"
+
+        // Wired after addSplitViewItem so the accessors are non-nil.
+        contentViewController?.activeHeadingDidChange = { [weak self] headingID in
+            self?.sidebarViewController?.setActiveHeading(headingID)
+        }
     }
 
     func display(markdown: String, fileName: String, url: URL?, assetBaseURL: URL?) {
