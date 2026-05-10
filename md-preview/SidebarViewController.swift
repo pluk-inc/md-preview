@@ -136,21 +136,7 @@ final class SidebarViewController: NSViewController {
 
     func display(markdown: String, fileName: String, fileURL: URL?) {
         loadViewIfNeeded()
-
-        // Defer folder enumeration until the user actually switches to the
-        // Project Navigator — saves the disk walk on every TOC-mode open.
-        // Keep the existing root if the new file is a descendant; otherwise
-        // reset so File → Open of an unrelated file still updates the tree.
-        let parent = fileURL?.deletingLastPathComponent()
-        if let parent, let current = loadedFolderURL, parent.isDescendantOrSame(of: current) {
-            pendingFolderURL = current
-        } else {
-            pendingFolderURL = parent
-        }
-        pendingFileURL = fileURL
-        if currentMode == .files {
-            refreshNavigatorIfNeeded()
-        }
+        setOpenFileURL(fileURL)
 
         guard markdown != lastRenderedMarkdown || fileName != lastRenderedFileName else { return }
         lastRenderedMarkdown = markdown
@@ -162,6 +148,30 @@ final class SidebarViewController: NSViewController {
             outlineView.expandItem(root, expandChildren: true)
         }
         outlineView.deselectAll(nil)
+    }
+
+    /// Update the tracked file URL after a rename — keeps the navigator
+    /// selection on the open file without rebuilding the TOC.
+    func openFileURLDidChange(_ newURL: URL) {
+        loadViewIfNeeded()
+        setOpenFileURL(newURL)
+    }
+
+    /// Defers folder enumeration until the user is actually in the
+    /// navigator (saves disk walks on every TOC-mode open). Keeps the
+    /// existing root if the new file is a descendant; otherwise resets
+    /// so an unrelated File → Open updates the tree.
+    private func setOpenFileURL(_ fileURL: URL?) {
+        let parent = fileURL?.deletingLastPathComponent()
+        if let parent, let current = loadedFolderURL, parent.isDescendantOrSame(of: current) {
+            pendingFolderURL = current
+        } else {
+            pendingFolderURL = parent
+        }
+        pendingFileURL = fileURL
+        if currentMode == .files {
+            refreshNavigatorIfNeeded()
+        }
     }
 
     /// Highlights the matching TOC row. Selecting via the API doesn't
@@ -481,25 +491,20 @@ final class ProjectNavigatorView: NSView {
     }
 
     private func handleFolderChange() {
-        // Snapshot expansion and selection so the user's view survives the reload.
-        let expandedURLs = collectExpandedURLs()
         let selectedURL = currentlySelectedURL()
+        refreshTree()
+        if let selectedURL { setCurrentFile(selectedURL) }
+    }
 
+    /// Reloads the outline from disk while preserving expansion state.
+    /// Selection is left to the caller.
+    private func refreshTree() {
+        let expandedURLs = collectExpandedURLs()
         if let rootNode { invalidateCaches(rootNode) }
         outlineView.reloadData()
-
         if let rootNode {
             outlineView.expandItem(rootNode)
             reExpand(rootNode, expanded: expandedURLs)
-        }
-        if let selectedURL,
-           let rootNode,
-           let target = findNode(in: rootNode, matching: selectedURL) {
-            let row = outlineView.row(forItem: target)
-            if row >= 0 {
-                outlineView.selectRowIndexes(IndexSet(integer: row),
-                                             byExtendingSelection: false)
-            }
         }
         syncWatchers()
     }
@@ -545,15 +550,6 @@ final class ProjectNavigatorView: NSView {
         }
     }
 
-    private func findNode(in node: FileNode, matching target: URL) -> FileNode? {
-        if node.url.standardizedFileURL == target { return node }
-        guard node.isDirectory, let kids = node.cachedChildren else { return nil }
-        for child in kids {
-            if let hit = findNode(in: child, matching: target) { return hit }
-        }
-        return nil
-    }
-
     func setCurrentFile(_ url: URL?) {
         guard let url, let rootNode else {
             outlineView.deselectAll(nil)
@@ -561,9 +557,16 @@ final class ProjectNavigatorView: NSView {
         }
         let target = url.standardizedFileURL
         var path: [FileNode] = []
-        guard collectPath(to: target, from: rootNode, into: &path) else {
-            outlineView.deselectAll(nil)
-            return
+        if !collectPath(to: target, from: rootNode, into: &path) {
+            // Cache might be stale (file was just renamed and our
+            // DirectoryWatcher hasn't fired yet). Refresh from disk once
+            // and retry before giving up.
+            refreshTree()
+            path = []
+            guard collectPath(to: target, from: rootNode, into: &path) else {
+                outlineView.deselectAll(nil)
+                return
+            }
         }
         for ancestor in path.dropLast() {
             outlineView.expandItem(ancestor)

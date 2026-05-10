@@ -56,6 +56,14 @@ final class MainSplitViewController: NSSplitViewController {
         inspectorViewController?.display(metadata: DocumentMetadata.make(url: url, markdown: markdown))
     }
 
+    /// URL-only refresh after a rename. Skips the content re-render so
+    /// the preview, scroll position, and active-heading highlight stay
+    /// put.
+    func openFileURLDidChange(_ newURL: URL, markdown: String) {
+        sidebarViewController?.openFileURLDidChange(newURL)
+        inspectorViewController?.display(metadata: DocumentMetadata.make(url: newURL, markdown: markdown))
+    }
+
     func clearContent() {
         contentViewController?.clearContent()
     }
