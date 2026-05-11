@@ -361,6 +361,26 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
     }
 
+    /// Top offsets in CSS pixels for every `md-heading-N`, in document
+    /// order. Index matches `TOCNode.headingID`.
+    func collectHeadingOffsets(completion: @escaping ([CGFloat]) -> Void) {
+        webView.evaluateJavaScript(Self.headingOffsetsScript) { result, _ in
+            guard let raw = result as? [NSNumber] else {
+                completion([])
+                return
+            }
+            completion(raw.map { CGFloat(truncating: $0) })
+        }
+    }
+
+    private static let headingOffsetsScript = """
+    (() => {
+        const els = document.querySelectorAll('[id^="md-heading-"]');
+        const scroll = window.scrollY || document.documentElement.scrollTop || 0;
+        return Array.from(els).map(el => el.getBoundingClientRect().top + scroll);
+    })();
+    """
+
     func headingOffset(index: Int, completion: @escaping (CGFloat?) -> Void) {
         let script = """
         (() => {
@@ -637,14 +657,7 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
         let bottomInset = clipView.contentInsets.bottom
         let viewportTop = clipView.bounds.origin.y + topInset
 
-        let script = """
-        (() => {
-            const els = document.querySelectorAll('[id^="md-heading-"]');
-            const scroll = window.scrollY || document.documentElement.scrollTop || 0;
-            return Array.from(els).map(el => el.getBoundingClientRect().top + scroll);
-        })();
-        """
-        webView.evaluateJavaScript(script) { [weak self, weak scrollView] result, _ in
+        webView.evaluateJavaScript(Self.headingOffsetsScript) { [weak self, weak scrollView] result, _ in
             guard let self,
                   let scrollView,
                   let raw = result as? [NSNumber] else { return }
