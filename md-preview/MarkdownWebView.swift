@@ -243,6 +243,11 @@ final class MarkdownWebView: NSView, WKNavigationDelegate {
             // --predicate 'subsystem == "doc.md-preview"'` surfaces them.
             guard let message = dict["message"] as? String else { return }
             Logger.perf.debug("\(message, privacy: .public)")
+        case "copyCode":
+            guard let text = dict["value"] as? String else { return }
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
         default:
             break
         }
