@@ -123,9 +123,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
 
     private func startWatching(_ url: URL) {
         fileWatcher?.cancel()
-        fileWatcher = FileWatcher(url: url) { [weak self] in
+        let watcher = FileWatcher(url: url) { [weak self] in
             guard let self, self.currentFileURL == url else { return }
             self.loadFile(at: url, silentOnFailure: true)
+        }
+        watcher.onRename = { [weak self] newURL in
+            self?.handleRename(to: newURL)
+        }
+        fileWatcher = watcher
+    }
+
+    /// The currently-open file moved (Finder rename, editor save-as, etc).
+    /// Update the open URL and propagate it to the title, recent docs,
+    /// Open With list, sidebar selection, and inspector — without
+    /// re-rendering the WebView, since the markdown content didn't change.
+    private func handleRename(to newURL: URL) {
+        guard currentFileURL != nil else { return }
+        currentFileURL = newURL
+        window.title = newURL.lastPathComponent
+        NSDocumentController.shared.noteNewRecentDocumentURL(newURL)
+        refreshOpenWithItem()
+        startWatching(newURL)
+        if let markdown = currentMarkdown {
+            (window.contentViewController as? MainSplitViewController)?
+                .openFileURLDidChange(newURL, markdown: markdown)
+        } else {
+            loadFile(at: newURL, silentOnFailure: true)
         }
     }
 
@@ -1230,6 +1253,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSSharing
 private final class FileWatcher {
     private let url: URL
     private let onChange: () -> Void
+    /// Fired when the watched file is renamed or moved (in Finder, by an
+    /// editor, etc.). Detected via `F_GETPATH` on the still-open FD —
+    /// the inode follows the file, so the descriptor resolves to the
+    /// new path. Plain deletes don't fire this (path unchanged).
+    var onRename: ((URL) -> Void)?
     private var source: DispatchSourceFileSystemObject?
     private var fileDescriptor: Int32 = -1
     private var debounce: DispatchWorkItem?
@@ -1253,12 +1281,18 @@ private final class FileWatcher {
         source.setEventHandler { [weak self] in
             guard let self, let source = self.source else { return }
             let event = source.data
-            self.scheduleChange()
             // Atomic-rename saves (Vim, VS Code, etc.) replace the inode;
             // re-open the watcher against the path so we keep tracking.
+            // For an actual user-visible rename, the FD's resolved path
+            // differs from the watcher's URL — surface that to the host.
             if !event.intersection([.delete, .rename, .revoke]).isEmpty {
+                if let newURL = self.currentPath(),
+                   newURL.standardizedFileURL != self.url.standardizedFileURL {
+                    self.onRename?(newURL)
+                }
                 self.reopen()
             }
+            self.scheduleChange()
         }
         source.setCancelHandler { [weak self] in
             guard let self else { return }
@@ -1277,6 +1311,15 @@ private final class FileWatcher {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.open()
         }
+    }
+
+    private func currentPath() -> URL? {
+        guard fileDescriptor >= 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(fileDescriptor, F_GETPATH, &buffer) == 0 else { return nil }
+        return URL(fileURLWithFileSystemRepresentation: buffer,
+                   isDirectory: false,
+                   relativeTo: nil)
     }
 
     private func scheduleChange() {
