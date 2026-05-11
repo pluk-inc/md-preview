@@ -703,9 +703,12 @@ nonisolated enum MarkdownHTML {
             try {
                 const h = window.webkit && window.webkit.messageHandlers
                     && window.webkit.messageHandlers.mdPreviewHost;
-                if (!h) return () => {};
-                return (msg) => h.postMessage(msg);
-            } catch (e) { return () => {}; }
+                if (!h) return () => false;
+                return (msg) => {
+                    h.postMessage(msg);
+                    return true;
+                };
+            } catch (e) { return () => false; }
         })();
 
         \(perfBridgeScript)
@@ -737,6 +740,63 @@ nonisolated enum MarkdownHTML {
         }
 
         window.MdPreviewHost = { pushHeight, measureHeight };
+
+        function decorateCodeBlocks() {
+            document.querySelectorAll('pre > code').forEach((code) => {
+                const pre = code.parentElement;
+                if (!pre || pre.dataset.copyButtonReady === '1') return;
+                pre.dataset.copyButtonReady = '1';
+
+                // Wrap pre in a positioned container so the copy button
+                // stays pinned regardless of horizontal scroll inside pre.
+                const wrap = document.createElement('div');
+                wrap.className = 'md-code-wrap';
+                pre.parentNode.insertBefore(wrap, pre);
+                wrap.appendChild(pre);
+
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'md-code-copy';
+                button.textContent = 'Copy';
+                button.setAttribute('aria-label', 'Copy code');
+                wrap.appendChild(button);
+            });
+        }
+
+        async function copyCodeBlock(button) {
+            const wrap = button.parentElement;
+            const code = wrap && wrap.querySelector('pre > code');
+            if (!code) return;
+            const text = code.textContent || '';
+            let copied = false;
+            try {
+                copied = post({ kind: 'copyCode', value: text });
+            } catch (e) {}
+            if (!copied && navigator.clipboard && navigator.clipboard.writeText) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    copied = true;
+                } catch (e) {}
+            }
+            if (!copied) return;
+            button.textContent = 'Copied';
+            button.setAttribute('aria-label', 'Code copied');
+            button.classList.add('is-copied');
+            clearTimeout(button.__mdCopyTimer);
+            button.__mdCopyTimer = setTimeout(() => {
+                button.textContent = 'Copy';
+                button.setAttribute('aria-label', 'Copy code');
+                button.classList.remove('is-copied');
+            }, 1100);
+        }
+
+        document.addEventListener('click', (event) => {
+            const button = event.target.closest('.md-code-copy');
+            if (!button) return;
+            event.preventDefault();
+            event.stopPropagation();
+            copyCodeBlock(button);
+        });
 
         // Vendor lazy-load helpers. rAF is paused while the WKWebView is
         // offscreen (e.g. during the launch-time warmup before the window
@@ -815,6 +875,7 @@ nonisolated enum MarkdownHTML {
             article.style.opacity = '';
             article.style.pointerEvents = '';
             if (articleHTML) {
+                decorateCodeBlocks();
                 for (const fn of reappliers) {
                     try { fn(); } catch (e) { /* one bad apple shouldn't block others */ }
                 }
@@ -825,6 +886,7 @@ nonisolated enum MarkdownHTML {
 
         function start() {
             perfLog('start (DOM ready)');
+            decorateCodeBlocks();
             pushHeight();
             try {
                 const ro = new ResizeObserver(pushHeight);
@@ -1594,6 +1656,7 @@ nonisolated enum MarkdownHTML {
         border-radius: 6px;
     }
     pre {
+        position: relative;
         margin: 0.8em 0 0;
         padding: 10px 14px;
         background: var(--code-bg);
@@ -1626,6 +1689,51 @@ nonisolated enum MarkdownHTML {
         padding: 0;
         background: transparent;
         font-size: 0.88em;
+    }
+    .md-code-wrap {
+        position: relative;
+    }
+    .md-code-copy {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        appearance: none;
+        min-width: 56px;
+        height: 24px;
+        padding: 0 10px;
+        border: none;
+        border-radius: 8px;
+        color: var(--secondary);
+        background: color-mix(in srgb, var(--text) 10%, var(--code-bg));
+        font: 500 11px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 120ms ease,
+                    color 120ms ease,
+                    background-color 120ms ease,
+                    transform 120ms ease;
+        z-index: 2;
+    }
+    .md-code-wrap:hover .md-code-copy,
+    .md-code-wrap:focus-within .md-code-copy,
+    .md-code-copy.is-copied {
+        opacity: 1;
+    }
+    .md-code-copy:hover {
+        color: var(--text);
+        background: color-mix(in srgb, var(--text) 16%, var(--code-bg));
+    }
+    .md-code-copy:active {
+        background: color-mix(in srgb, var(--text) 22%, var(--code-bg));
+        transform: scale(0.97);
+    }
+    .md-code-copy:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px color-mix(in srgb, AccentColor 60%, transparent);
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .md-code-copy { transition: none; }
+        .md-code-copy:active { transform: none; }
     }
     .mermaid-figure {
         position: relative;
