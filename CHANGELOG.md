@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.0.21] – 2026-05-11
+
+The table of contents now follows your reading position, the Project Navigator reacts to folder changes, and code blocks are easier to copy.
+
+### Added
+
+- **Table of contents scrollspy.** The outline highlights the heading currently in view while you scroll, keeps click-selected headings stable, and resumes tracking naturally on the next scroll ([#101](https://github.com/pluk-inc/markdown-preview/pull/101)).
+- **Live Project Navigator updates.** The navigator watches visible folders for Markdown file additions, renames, and deletes, updating the sidebar without reopening the document ([#101](https://github.com/pluk-inc/markdown-preview/pull/101)).
+- **Copy buttons for code blocks.** Fenced code blocks now expose a hover-revealed Copy button that stays pinned while horizontally scrolling long snippets, writes through the native pasteboard bridge, and provides accessible copied-state feedback ([#102](https://github.com/pluk-inc/markdown-preview/pull/102)).
+
+### Fixed
+
+- **Project Navigator root stays stable.** Opening a deeper file from the navigator no longer narrows the root folder unexpectedly; opening an unrelated file still resets the navigator to the new folder ([#101](https://github.com/pluk-inc/markdown-preview/pull/101)).
+
+### Contributors
+
+Thanks to the external contributor who shipped in this release:
+
+- [@luuccaaaa](https://github.com/luuccaaaa) — table of contents scrollspy, live Project Navigator updates, and stable navigator roots ([#101](https://github.com/pluk-inc/markdown-preview/pull/101))
+
 ## [0.0.20] – 2026-05-09
 
 The sidebar toolbar menu now stays responsive and shows the correct selected mode after toolbar customization.
