@@ -74,6 +74,7 @@ nonisolated final class MarkdownAssetScheme: NSObject, WKURLSchemeHandler {
             "copy-tex.min.js":  ("copy-tex.min",  "js",  "Vendor/KaTeX"),
             "mermaid.min.js":   ("mermaid.min",   "js",  "Vendor/Mermaid"),
             "highlight.min.js": ("highlight.min", "js",  "Vendor/Highlight"),
+            "purify.min.js":    ("purify.min",    "js",  "Vendor/DOMPurify"),
         ]
         guard let entry = mapping[filename] else { return nil }
 

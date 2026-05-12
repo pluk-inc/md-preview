@@ -64,6 +64,7 @@ nonisolated enum MarkdownHTML {
         </style>
         """ : ""
         let baseTag = assetBaseHref.map { "<base href=\"\($0)\">" } ?? ""
+        let sanitizerBlock = dompurifyHead()
         let mathBlock = containsMath ? katexHead(mode: vendorLoading) : ""
         let mermaidBlock = containsMermaid ? mermaidScript(mode: vendorLoading) : ""
         let highlightBlock = containsCode ? highlightHead(mode: vendorLoading) : ""
@@ -74,6 +75,14 @@ nonisolated enum MarkdownHTML {
         let articleStyle = warmup
             ? " style=\"opacity:0;pointer-events:none\""
             : ""
+        let warmupAttr = warmup ? " data-warmup=\"1\"" : ""
+        // Article body is delivered inside an inert <template> element rather
+        // than inlined into <article>. WebKit parses <template> contents into
+        // a DocumentFragment with a separate owner document — scripts don't
+        // execute, images don't fetch, and event-handler attributes never fire.
+        // The bootstrap then reads template.innerHTML, runs it through
+        // DOMPurify, and assigns the sanitized result to article.innerHTML.
+        let safeBody = bodyHTML.replacingOccurrences(of: "</template", with: "<\\/template")
         let html = """
         <!DOCTYPE html>
         <html>
@@ -83,15 +92,15 @@ nonisolated enum MarkdownHTML {
         \(baseTag)
         <style>\(stylesheet)</style>
         \(scrollOverride)
+        \(sanitizerBlock)
         \(hostBridgeScript)
         \(mathBlock)
         \(mermaidBlock)
         \(highlightBlock)
         </head>
         <body>
-        <article class="markdown-body"\(articleStyle)>
-        \(bodyHTML)
-        </article>
+        <article class="markdown-body"\(warmupAttr)\(articleStyle)></article>
+        <template id="md-article-source">\(safeBody)</template>
         </body>
         </html>
         """
@@ -858,6 +867,39 @@ nonisolated enum MarkdownHTML {
             }
         };
 
+        // DOMPurify config. Closes the raw-HTML XSS path on user markdown
+        // (EscapingHTMLFormatter passes block- and inline-HTML through per
+        // CommonMark). Inline event handlers, <script>, <iframe>, <object>,
+        // <embed>, <base>, <meta>, <link>, <style>, <form>, and <button> are
+        // dropped; the `style` attribute is stripped to defeat visual-deception
+        // attacks against the copy button (display:none segments inside
+        // <pre><code> would otherwise survive into clipboard textContent).
+        //
+        // ALLOWED_URI_REGEXP extends DOMPurify's default safe-URL list with
+        // `md-asset:` so markdown image references that resolve to the
+        // document's base directory (![alt](relative/path.png)) keep working.
+        const SANITIZE_CONFIG = {
+            FORBID_TAGS: ['style', 'form', 'button', 'iframe', 'object',
+                          'embed', 'meta', 'link', 'base'],
+            FORBID_ATTR: ['style'],
+            ADD_ATTR: ['target'],
+            ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|md-asset):|[^a-z]|[a-z+.\\-]+(?:[^a-z+.\\-:]|$))/i
+        };
+
+        function sanitize(html) {
+            if (typeof html !== 'string') return '';
+            if (typeof DOMPurify === 'undefined' || !DOMPurify.sanitize) {
+                // Fail closed: refuse to render rather than risk shipping
+                // unsanitized HTML into innerHTML. This branch fires only if
+                // the bundled purify.min.js is missing from the app bundle.
+                if (window.console && console.error) {
+                    console.error('[md-preview] DOMPurify not loaded; refusing to render article.');
+                }
+                return '';
+            }
+            return DOMPurify.sanitize(html, SANITIZE_CONFIG);
+        }
+
         // Incremental-update entry point. Each renderer (KaTeX/Mermaid)
         // registers an idempotent reapplier that re-processes the current
         // article. Same-flag re-renders skip the WKWebView reload entirely.
@@ -866,14 +908,19 @@ nonisolated enum MarkdownHTML {
         window.MdPreview.registerReapplier = (fn) => {
             if (typeof fn === 'function') reappliers.push(fn);
         };
-        window.MdPreview.update = (articleHTML) => {
+        // `opts.keepHidden` preserves the warmup opacity so the synthetic
+        // Mermaid pre-render doesn't flash on screen. The host then issues a
+        // second update without the flag once the real document arrives,
+        // which clears the inline style and reveals the article.
+        window.MdPreview.update = (articleHTML, opts) => {
             const article = document.querySelector('.markdown-body');
             if (!article) return;
             const tStart = perfNow();
-            article.innerHTML = articleHTML;
-            // Reveal the article if the warmup render hid it.
-            article.style.opacity = '';
-            article.style.pointerEvents = '';
+            article.innerHTML = sanitize(articleHTML);
+            if (!opts || !opts.keepHidden) {
+                article.style.opacity = '';
+                article.style.pointerEvents = '';
+            }
             if (articleHTML) {
                 decorateCodeBlocks();
                 for (const fn of reappliers) {
@@ -884,8 +931,22 @@ nonisolated enum MarkdownHTML {
             pushHeight();
         };
 
+        // Initial-load populator. The article body ships inside an inert
+        // <template> element so the parser never fires inline event handlers
+        // on first paint. Pull it out, sanitize, inject. The template is
+        // removed once consumed.
+        function populateFromTemplate() {
+            const tmpl = document.getElementById('md-article-source');
+            if (!tmpl) return;
+            const article = document.querySelector('.markdown-body');
+            const keepHidden = !!(article && article.dataset.warmup === '1');
+            window.MdPreview.update(tmpl.innerHTML, { keepHidden });
+            tmpl.remove();
+        }
+
         function start() {
             perfLog('start (DOM ready)');
+            populateFromTemplate();
             decorateCodeBlocks();
             pushHeight();
             try {
@@ -944,6 +1005,20 @@ nonisolated enum MarkdownHTML {
         window.dispatchEvent(new Event('md-preview-math-rendered'));
     }
     """
+
+    /// Inline DOMPurify so the bootstrap can call `DOMPurify.sanitize` before
+    /// the first article ever reaches `innerHTML`. Emitted ahead of the host
+    /// bridge so the sanitizer is defined by the time `MdPreview.update` runs.
+    /// If the vendored file is missing (developer setup error), this returns
+    /// empty and the bootstrap's `sanitize()` fails closed — rendering an
+    /// empty article rather than shipping unsanitized HTML.
+    private static func dompurifyHead() -> String {
+        guard let js = bundledVendorResource("purify.min", ext: "js", subdir: "Vendor/DOMPurify") else {
+            return ""
+        }
+        let safeJS = js.replacingOccurrences(of: "</script", with: "<\\/script")
+        return "<script>\(safeJS)</script>"
+    }
 
     private static func katexHead(mode: VendorLoading) -> String {
         guard bundledVendorURL("katex.min", ext: "js", subdir: "Vendor/KaTeX") != nil else {
