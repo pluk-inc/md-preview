@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.0.22] – 2026-05-14
+
+Markdown Preview now sanitizes rendered HTML before it reaches the preview WebView, and Sparkle update checks point at the Amore-published appcast.
+
+### Changed
+
+- **Amore sponsor credit added.** The README now lists Amore among the project sponsors ([#105](https://github.com/pluk-inc/markdown-preview/pull/105)).
+
+### Fixed
+
+- **Sparkle feed URL now matches Amore hosting.** Update checks now use the Amore appcast path at `https://release.md-preview.app/v1/apps/doc.md-preview/appcast.xml`, so installed copies look at the feed that Amore publishes.
+
+### Security
+
+- **Rendered Markdown HTML is sanitized with DOMPurify.** The app and Quick Look extension now route generated article HTML through DOMPurify before inserting it into the WebView, blocking inline event handlers, executable tags, dangerous URL schemes, hidden style-based copy substitutions, and related raw-HTML injection attacks while preserving Markdown rendering, KaTeX, Mermaid, highlight.js, local images, links, task lists, footnotes, code copy buttons, find, scrollspy, and heading IDs ([#104](https://github.com/pluk-inc/markdown-preview/pull/104)).
+
+### Contributors
+
+Thanks to the external contributors who shipped in this release:
+
+- [@luuccaaaa](https://github.com/luuccaaaa) — rendered Markdown HTML sanitization with DOMPurify ([#104](https://github.com/pluk-inc/markdown-preview/pull/104))
+- [@lucasfischer](https://github.com/lucasfischer) — Amore sponsor credit ([#105](https://github.com/pluk-inc/markdown-preview/pull/105))
+
 ## [0.0.21] – 2026-05-11
 
 The table of contents now follows your reading position, the Project Navigator reacts to folder changes, and code blocks are easier to copy.
