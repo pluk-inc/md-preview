@@ -870,16 +870,19 @@ nonisolated enum MarkdownHTML {
         // DOMPurify config. Closes the raw-HTML XSS path on user markdown
         // (EscapingHTMLFormatter passes block- and inline-HTML through per
         // CommonMark). Inline event handlers, <script>, <iframe>, <object>,
-        // <embed>, <base>, <meta>, <link>, <style>, <form>, and <button> are
-        // dropped; the `style` attribute is stripped to defeat visual-deception
+        // <embed>, <base>, <meta>, <link>, <style>, and <form> are dropped;
+        // the `style` attribute is stripped to defeat visual-deception
         // attacks against the copy button (display:none segments inside
         // <pre><code> would otherwise survive into clipboard textContent).
+        // <button> stays allowed so the mermaid zoom HUD survives sanitize();
+        // without a parent <form> (forbidden above), `formaction` has nothing
+        // to submit to, and on* handlers are stripped by DOMPurify defaults.
         //
         // ALLOWED_URI_REGEXP extends DOMPurify's default safe-URL list with
         // `md-asset:` so markdown image references that resolve to the
         // document's base directory (![alt](relative/path.png)) keep working.
         const SANITIZE_CONFIG = {
-            FORBID_TAGS: ['style', 'form', 'button', 'iframe', 'object',
+            FORBID_TAGS: ['style', 'form', 'iframe', 'object',
                           'embed', 'meta', 'link', 'base'],
             FORBID_ATTR: ['style'],
             ADD_ATTR: ['target'],
