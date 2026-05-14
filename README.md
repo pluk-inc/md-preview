@@ -116,7 +116,11 @@ Pull requests are welcome. For larger changes, please open an issue first to dis
 
 <p align="center">
   <a href="https://pluk.sh">
-    <img src="docs/sponsors/pluk-logo.svg" width="220" alt="Pluk" />
+    <img src="docs/sponsors/pluk-logo.svg" height="54" alt="Pluk" />
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://amore.computer">
+    <img src="docs/sponsors/amore-logo.png" height="54" alt="Amore" />
   </a>
 </p>
 
