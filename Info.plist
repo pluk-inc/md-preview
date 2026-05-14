@@ -29,7 +29,7 @@
 	<key>SUEnableInstallerLauncherService</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://storage.md-preview.app/appcast.xml</string>
+	<string>https://release.md-preview.app/v1/apps/doc.md-preview/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>gIQjgqfjkIR+egQ4S1oBLxE/NCDxpXXGdZXSpn04VAY=</string>
 	<key>UTImportedTypeDeclarations</key>
